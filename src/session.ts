@@ -121,10 +121,14 @@ export function findSession(ref: string, cwd: string): string {
 
   if (ref === "last") {
     const folder = workspaceSessions(cwd);
+    // Run ids carry the time only to the second, so two runs in one second would sort by their
+    // random suffix. The start time inside each log decides.
     const runs = existsSync(folder)
       ? readdirSync(folder)
           .filter((name) => name.startsWith("run-") && existsSync(join(folder, name, SESSION_FILE)))
-          .sort()
+          .map((name) => ({ name, started: startedAt(join(folder, name, SESSION_FILE)) }))
+          .sort((a, b) => a.started - b.started || a.name.localeCompare(b.name))
+          .map((run) => run.name)
       : [];
     const newest = runs.at(-1);
     if (!newest) throw new UsageError(`--resume last: no earlier run was started from ${cwd}`);
@@ -139,6 +143,18 @@ export function findSession(ref: string, cwd: string): string {
     }
   }
   throw new UsageError(`--resume: no run "${ref}" (pass a run id, a session path, or "last")`);
+}
+
+/** When a logged run started: its run_start time, or the log's age when that is unreadable. */
+function startedAt(path: string): number {
+  try {
+    const first = readFileSync(path, "utf8").split("\n", 1)[0] ?? "";
+    const event = JSON.parse(first) as { type?: string; time?: number };
+    if (event.type === "run_start" && typeof event.time === "number") return event.time;
+  } catch {
+    // fall through
+  }
+  return statSync(path).mtimeMs;
 }
 
 export interface ResumedSession {

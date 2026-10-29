@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { findSession, loadSession } from "../src/session.js";
+import { findSession, loadSession, workspaceSessions } from "../src/session.js";
 import { tempDir } from "./helpers.js";
 
 const require = createRequire(import.meta.url);
@@ -171,6 +171,24 @@ test("--resume continues the conversation in the earlier run's workspace", { tim
     }
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    dir.cleanup();
+  }
+});
+
+test("last means the latest start, even within one second", () => {
+  const dir = tempDir();
+  const previousHome = process.env.COCSEAK_HOME;
+  process.env.COCSEAK_HOME = dir.path;
+  try {
+    const cwd = "/some/workspace";
+    const folder = workspaceSessions(cwd);
+    // Same second, and the later run has the alphabetically smaller suffix.
+    writeLog(join(folder, "run-20261029221500-zzzzzz"), [{ ...start, run_id: "early", time: 1000 }]);
+    writeLog(join(folder, "run-20261029221500-aaaaaa"), [{ ...start, run_id: "late", time: 2000 }]);
+    assert.match(findSession("last", cwd), /run-20261029221500-aaaaaa/);
+  } finally {
+    if (previousHome === undefined) delete process.env.COCSEAK_HOME;
+    else process.env.COCSEAK_HOME = previousHome;
     dir.cleanup();
   }
 });
