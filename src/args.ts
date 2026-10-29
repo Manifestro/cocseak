@@ -51,7 +51,9 @@ Options:
   --base-url <url>     OpenAI-compatible base URL. Default: $COCSEAK_BASE_URL,
                        $DEEPSEEK_BASE_URL, or https://api.deepseek.com/v1.
   --api-key <key>      API key. Default: $COCSEAK_API_KEY or $DEEPSEEK_API_KEY.
-  --max-turns <n>      Model turns before the run fails. Default: 50.
+  --max-turns <n>      Turn budget. The model is told it, reminded at 80%, and when it runs out
+                       writes a report without tools; the work is kept and the exit code is 4.
+                       Default: settings, the model's default (deepseek-flash: 100), or 50.
   --timeout <sec>      Wall-clock limit for the whole run. Default: 1800.
   --context-tokens <n> Model context window. Older steps are summarized before it fills.
                        Default: $COCSEAK_CONTEXT_TOKENS, settings, the model's known window
@@ -81,7 +83,7 @@ Exit codes:
   1  the run failed (provider, tool, or internal error)
   2  usage or configuration error
   3  timeout
-  4  max turns reached
+  4  the turn limit was reached; the report and the work are kept
 `;
 
 /** Parse and validate argv. Throws UsageError for anything the user can fix. */

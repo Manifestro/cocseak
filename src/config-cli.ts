@@ -1,5 +1,5 @@
 import { maskKey, loadSettings, saveSettings, setSetting, settingsPath, unsetSetting, SETTING_NAMES, type SettingName } from "./settings.js";
-import { lookupApiKey, lookupBaseUrl, lookupContextTokens, lookupModel } from "./config.js";
+import { lookupApiKey, lookupBaseUrl, lookupContextTokens, lookupMaxTurns, lookupModel } from "./config.js";
 import { ConfigError, UsageError } from "./errors.js";
 
 const SET_USAGE = `cocseak config set <name> <value>
@@ -38,11 +38,13 @@ function show(): number {
   const base = lookupBaseUrl(undefined, loaded.settings);
   const key = lookupApiKey(undefined, loaded.settings);
   const context = lookupContextTokens(undefined, model.value as string, loaded.settings);
+  const turns = lookupMaxTurns(undefined, model.value as string, loaded.settings);
 
   process.stdout.write(`config:  ${loaded.path} (${loaded.exists ? "exists" : "missing"})\n`);
   process.stdout.write(`model:   ${model.value} (${model.source})\n`);
   process.stdout.write(`base:    ${base.value} (${base.source})\n`);
   process.stdout.write(`context: ${context.value.toLocaleString("en-US")} tokens (${context.source})\n`);
+  process.stdout.write(`turns:   ${turns.value} (${turns.source})\n`);
   process.stdout.write(
     `api key: ${key.value ? `${maskKey(key.value)} (${key.source})` : "not set"}\n`,
   );

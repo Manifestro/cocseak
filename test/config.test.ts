@@ -118,3 +118,18 @@ test("the context window follows the model, and an explicit setting wins", () =>
   );
   assert.equal(fromFlag.contextTokens, 64_000);
 });
+
+test("the turn budget follows the model, and an explicit setting wins", () => {
+  const input = { ...base, baseUrl: undefined, apiKey: undefined, contextTokens: undefined };
+  const flash = resolveConfig({ ...input, model: "deepseek-flash", settings: { api_key: "k" } }, {});
+  assert.equal(flash.maxTurns, 100);
+  const chat = resolveConfig({ ...input, model: "deepseek-chat", settings: { api_key: "k" } }, {});
+  assert.equal(chat.maxTurns, 50);
+  const saved = resolveConfig(
+    { ...input, model: "deepseek-flash", settings: { api_key: "k", max_turns: 30 } },
+    {},
+  );
+  assert.equal(saved.maxTurns, 30);
+  const flag = resolveConfig({ ...input, maxTurns: 7, model: "deepseek-flash", settings: { api_key: "k" } }, {});
+  assert.equal(flag.maxTurns, 7);
+});

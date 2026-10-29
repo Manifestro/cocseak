@@ -81,12 +81,64 @@ test("runs tool calls until the model answers and logs every step", async () => 
   }
 });
 
-test("stops at max turns", async () => {
+test("at the turn limit the model is reminded, then reports without tools", async () => {
+  const dir = tempDir();
+  try {
+    const seen: Array<{ choice: string; last: string }> = [];
+    const provider = {
+      model: "fake-model",
+      async complete(messages: Array<{ content: string | null }>, _tools: unknown, _d: unknown, _s: unknown, choice = "auto") {
+        seen.push({ choice, last: String(messages.at(-1)?.content ?? "") });
+        if (choice === "none") {
+          return { content: "changed a.txt; tests not run yet", reasoning: "", toolCalls: [], usage: undefined, finishReason: "stop" };
+        }
+        return {
+          content: "",
+          reasoning: "",
+          toolCalls: [{ id: `call_${seen.length}`, name: "bash", arguments: '{"command":"true"}' }],
+          usage: undefined,
+          finishReason: "tool_calls",
+        };
+      },
+    } as unknown as OpenAiCompatibleProvider;
+
+    const session = new SessionLog(join(dir.path, "session"), newRunId());
+    const kap = KapAdapter.detect({ cwd: dir.path, mode: "off", runId: "run-1" });
+
+    const result = await runAgent({
+      provider,
+      tools: TOOLS,
+      systemPrompt: "test",
+      task: "loop",
+      cwd: dir.path,
+      title: "test",
+      maxTurns: 5,
+      contextTokens: 128_000,
+      signal: new AbortController().signal,
+      session,
+      kap,
+    });
+
+    assert.equal(result.limitReached, true);
+    assert.equal(result.turns, 5);
+    assert.equal(result.answer, "changed a.txt; tests not run yet");
+    // Turn 5 is preceded by the reminder; the sixth request is the tool-less wrap-up.
+    assert.match(seen[4]?.last ?? "", /1 of 5 turns left/);
+    assert.equal(seen.length, 6);
+    assert.equal(seen[5]?.choice, "none");
+    assert.match(seen[5]?.last ?? "", /tools are now off/);
+  } finally {
+    dir.cleanup();
+  }
+});
+
+test("a failed wrap-up still ends the run with a note, not an error", async () => {
   const dir = tempDir();
   try {
     const provider = {
       model: "fake-model",
-      async complete() {
+      async complete(_m: unknown, _t: unknown, _d: unknown, _s: unknown, choice = "auto") {
+        if (choice === "none") throw new Error("provider down");
         return {
           content: "",
           reasoning: "",
@@ -99,24 +151,21 @@ test("stops at max turns", async () => {
 
     const session = new SessionLog(join(dir.path, "session"), newRunId());
     const kap = KapAdapter.detect({ cwd: dir.path, mode: "off", runId: "run-1" });
-
-    await assert.rejects(
-      () =>
-        runAgent({
-          provider,
-          tools: TOOLS,
-          systemPrompt: "test",
-          task: "loop",
-          cwd: dir.path,
-          title: "test",
-          maxTurns: 2,
-          contextTokens: 128_000,
-          signal: new AbortController().signal,
-          session,
-          kap,
-        }),
-      /did not finish within 2 turns/,
-    );
+    const result = await runAgent({
+      provider,
+      tools: TOOLS,
+      systemPrompt: "test",
+      task: "loop",
+      cwd: dir.path,
+      title: "test",
+      maxTurns: 2,
+      contextTokens: 128_000,
+      signal: new AbortController().signal,
+      session,
+      kap,
+    });
+    assert.equal(result.limitReached, true);
+    assert.match(result.answer, /turn limit of 2 reached; the model wrote no report/);
   } finally {
     dir.cleanup();
   }

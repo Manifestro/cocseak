@@ -26,6 +26,28 @@ export const MODEL_CONTEXT_TOKENS: Readonly<Record<string, number>> = {
   "deepseek-flash": 1_000_000,
 };
 
+/**
+ * Turn budgets of models whose default differs. deepseek-flash is cheap and checks its work in
+ * many small steps, so real tasks ran out of 50 turns with the work nearly done.
+ */
+export const MODEL_MAX_TURNS: Readonly<Record<string, number>> = {
+  "deepseek-flash": 100,
+};
+
+export interface TurnsValue {
+  value: number;
+  source: "flag" | "config" | "model" | "default";
+}
+
+/** The turn budget: flag, settings, the model's default, the general default. */
+export function lookupMaxTurns(flag: number | undefined, model: string, settings: Settings): TurnsValue {
+  if (flag !== undefined) return { value: flag, source: "flag" };
+  if (settings.max_turns !== undefined) return { value: settings.max_turns, source: "config" };
+  const known = MODEL_MAX_TURNS[model];
+  if (known !== undefined) return { value: known, source: "model" };
+  return { value: DEFAULT_MAX_TURNS, source: "default" };
+}
+
 export interface ConfigInput {
   baseUrl: string | undefined;
   apiKey: string | undefined;
@@ -110,7 +132,7 @@ export function resolveConfig(input: ConfigInput, env: NodeJS.ProcessEnv = proce
     );
   }
 
-  const maxTurns = input.maxTurns ?? settings.max_turns ?? DEFAULT_MAX_TURNS;
+  const maxTurns = lookupMaxTurns(input.maxTurns, model, settings).value;
   // A file-level timeout is stored in seconds, a flag-level one already in milliseconds.
   const timeoutMs =
     input.timeoutMs ??

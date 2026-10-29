@@ -181,6 +181,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       briefing,
       kapAttempt: kap.state.attempt,
       toolNames: TOOLS.map((tool) => tool.name),
+      maxTurns: config.maxTurns,
     });
 
     const baseline = captureBaseline(cwd);
@@ -247,36 +248,43 @@ export async function main(argv: readonly string[]): Promise<number> {
         }
       }
 
-      const report = buildReport({
-        title,
-        task,
-        model: config.model,
-        cwd,
-        answer: result.answer,
-        turns: result.turns,
-        usage: result.usage,
-        compactions: result.compactions,
-        duration_ms: Date.now() - startedAt,
-        session: session.path,
-        kap: {
-          ...kap.describe(),
-          ...(attached.created
-            ? { created: true, branch: attached.created.branch, worktree: attached.created.worktree }
-            : {}),
+      const report = buildReport(
+        {
+          title,
+          task,
+          model: config.model,
+          cwd,
+          answer: result.answer,
+          turns: result.turns,
+          usage: result.usage,
+          compactions: result.compactions,
+          duration_ms: Date.now() - startedAt,
+          session: session.path,
+          kap: {
+            ...kap.describe(),
+            ...(attached.created
+              ? { created: true, branch: attached.created.branch, worktree: attached.created.worktree }
+              : {}),
+          },
+          ...(resumed ? { resumed_from: resumed.runId } : {}),
+          changes,
+          commit,
+          ...(leftOut.length > 0 ? { left_out: leftOut } : {}),
+          commands: result.commands,
+          decisions: result.decisions,
         },
-        ...(resumed ? { resumed_from: resumed.runId } : {}),
-        changes,
-        commit,
-        ...(leftOut.length > 0 ? { left_out: leftOut } : {}),
-        commands: result.commands,
-        decisions: result.decisions,
-      });
+        result.limitReached,
+      );
 
       if (options.reportPath !== undefined) writeReport(options.reportPath, report);
       if (json) process.stdout.write(`${JSON.stringify(report)}\n`);
       else if (options.answerOnly) process.stdout.write(`${report.answer}\n`);
       else process.stdout.write(renderText(report));
 
+      if (result.limitReached) {
+        say(`cocseak: turn limit of ${config.maxTurns} reached; the report and the work are kept`);
+        return EXIT_MAX_TURNS;
+      }
       return EXIT_OK;
     } finally {
       clearTimeout(timer);

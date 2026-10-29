@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { lookupApiKey, lookupBaseUrl, lookupContextTokens, lookupModel, modelsUrl } from "./config.js";
+import { lookupApiKey, lookupBaseUrl, lookupContextTokens, lookupMaxTurns, lookupModel, modelsUrl } from "./config.js";
 import { ConfigError } from "./errors.js";
 import { findAttempt, findKapBinary, findKapRoot } from "./kap.js";
 import { gitTopLevel, hasTrackedChanges, readHead } from "./git.js";
@@ -60,6 +60,8 @@ export async function runDoctorCommand(argv: readonly string[]): Promise<number>
   say("base", `${base.value} (${base.source})`);
   const context = lookupContextTokens(undefined, model.value as string, loaded.settings);
   say("context", `${context.value.toLocaleString("en-US")} tokens (${context.source}), summarized at 75%`);
+  const turns = lookupMaxTurns(undefined, model.value as string, loaded.settings);
+  say("turns", `${turns.value} (${turns.source}), wrap-up reminder at 80%`);
   if (key.value) {
     say("api key", `${maskKey(key.value)} (${key.source})`);
   } else {

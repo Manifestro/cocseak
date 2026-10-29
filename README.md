@@ -109,7 +109,7 @@ Created NOTES.md ... (the agent's report)
 | `workspace: ... (not a git repository)` | optional: `git init` so `changed` includes +/− line counts |
 | `kap: ... not in a KAP repository` | optional: run `kap init` in the repo to record runs |
 | exit code `3` | the run hit `--timeout`; raise it for long builds |
-| exit code `4` | the model used all `--max-turns`; raise it or split the task |
+| exit code `4` | the model used all `--max-turns`. It still wrote a report and the work was committed; `--resume last` continues it, or raise the budget, or split the task |
 | exit code `1` | the run failed; the message above says why |
 
 ---
@@ -193,7 +193,7 @@ cocseak doctor [--offline]
 | `--model <id>` | Model id. Default: `$COCSEAK_MODEL`, `$DEEPSEEK_MODEL`, `deepseek-chat`. |
 | `--base-url <url>` | OpenAI-compatible base URL. Default: `$COCSEAK_BASE_URL`, `$DEEPSEEK_BASE_URL`, `https://api.deepseek.com/v1`. |
 | `--api-key <key>` | Key. Default: `$COCSEAK_API_KEY`, `$DEEPSEEK_API_KEY`, the settings file. |
-| `--max-turns <n>` | Model turns before the run fails. Default: 50. |
+| `--max-turns <n>` | Turn budget. The model is told it, reminded at 80%, and when it runs out writes the report with tools off; the work is kept and the exit code is 4. Default: `config set max-turns`, the model's default (`deepseek-flash`: 100), or 50. |
 | `--timeout <sec>` | Wall-clock limit. Default: 1800. |
 | `--context-tokens <n>` | Model context window. Older steps are summarized before 75% of it is reached. Default: `$COCSEAK_CONTEXT_TOKENS`, `config set context-tokens`, the model's known window (`deepseek-flash`: 1000000), or 128000. `cocseak config show` says which applies. |
 | `--json` | Print the report as one JSON object on stdout. |

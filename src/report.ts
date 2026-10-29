@@ -54,8 +54,9 @@ export interface FailureInput {
 
 export interface Report extends ReportInput {
   report_version: 1;
-  ok: true;
-  status: "completed";
+  /** False when the turn limit cut the run short; the report and the work are kept anyway. */
+  ok: boolean;
+  status: "completed" | "turn_limit";
 }
 
 export interface FailureReport {
@@ -78,11 +79,11 @@ export interface FailureReport {
  * A caller — Claude Code, Codex, a router — gets what changed, what was run, what was decided, and
  * how the run ended, without re-reading the transcript or diffing the tree itself.
  */
-export function buildReport(input: ReportInput): Report {
+export function buildReport(input: ReportInput, limitReached = false): Report {
   return {
     report_version: 1,
-    ok: true,
-    status: "completed",
+    ok: !limitReached,
+    status: limitReached ? "turn_limit" : "completed",
     ...input,
     commands: input.commands.slice(0, 100),
     decisions: input.decisions.slice(0, 50),

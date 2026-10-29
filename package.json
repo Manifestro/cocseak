@@ -1,6 +1,6 @@
 {
   "name": "cocseak",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "One-shot coding harness for OpenAI-compatible models, built to be driven by a router",
   "license": "MIT",
   "type": "module",

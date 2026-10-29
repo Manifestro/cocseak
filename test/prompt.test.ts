@@ -33,3 +33,16 @@ test("omits the section when there is no briefing", () => {
   });
   assert.doesNotMatch(prompt, /Earlier work in this attempt/);
 });
+
+test("tells the model its turn budget and how to spend it", () => {
+  const prompt = buildSystemPrompt({
+    cwd: "/repo",
+    briefing: null,
+    kapAttempt: null,
+    toolNames: ["bash", "edit_file"],
+    maxTurns: 100,
+  });
+  assert.match(prompt, /You have 100 turns/);
+  assert.match(prompt, /Verify once, at the end/);
+  assert.match(prompt, /not with scripts that rewrite them/);
+});

@@ -82,6 +82,8 @@ export class OpenAiCompatibleProvider {
     tools: readonly ToolSchema[],
     onDelta?: (text: string) => void,
     signal?: AbortSignal,
+    /** "none" keeps the tools visible, so earlier tool calls stay valid, but forbids new ones. */
+    toolChoice: "auto" | "none" = "auto",
   ): Promise<AssistantTurn> {
     const body: Record<string, unknown> = {
       model: this.model,
@@ -91,7 +93,7 @@ export class OpenAiCompatibleProvider {
     };
     if (tools.length > 0) {
       body.tools = tools;
-      body.tool_choice = "auto";
+      body.tool_choice = toolChoice;
     }
 
     let lastError: unknown;

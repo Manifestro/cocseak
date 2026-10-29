@@ -1,6 +1,6 @@
 import { relative } from "node:path";
 
-import { MaxTurnsError, ProviderError, TimeoutError } from "./errors.js";
+import { ProviderError, TimeoutError } from "./errors.js";
 import type { KapAdapter } from "./kap.js";
 import type { OpenAiCompatibleProvider } from "./provider.js";
 import type { SessionLog } from "./session.js";
@@ -45,6 +45,8 @@ export interface AgentPartial {
 
 export interface AgentResult {
   answer: string;
+  /** The model used every turn; `answer` is the report it wrote in the extra wrap-up turn. */
+  limitReached: boolean;
   turns: number;
   usage: Usage;
   compactions: number;
@@ -97,6 +99,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   let lastSummaryTurn = -10;
   let lastCallSignature = "";
   let repeatedCalls = 0;
+  let reminded = false;
+  const remindAt = Math.max(1, Math.floor(options.maxTurns * REMIND_AT));
 
   try {
     while (turns < options.maxTurns) {
@@ -128,6 +132,18 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           session.append({ type: "history", time: Date.now(), messages: messages.slice(1) });
           options.onEvent?.({ type: "compact", before, after, summarized: compacted.summarized });
         }
+      }
+
+      // A model that does not know its budget never starts to wrap up; tell it once, near the end.
+      if (!reminded && options.maxTurns >= 5 && turns >= remindAt) {
+        reminded = true;
+        const left = options.maxTurns - turns;
+        push({
+          role: "user",
+          content:
+            `[cocseak] ${left} of ${options.maxTurns} turns left. Finish the change now: no more ` +
+            "exploring or polishing, run the final check once, then reply with the report.",
+        });
       }
 
       turns += 1;
@@ -188,11 +204,16 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       }
     }
 
+    let limitReached = false;
     if (answer === "") {
       if (turns >= options.maxTurns) {
-        throw new MaxTurnsError(`model did not finish within ${options.maxTurns} turns`);
+        // Out of turns is not out of work: one more turn, without tools, for the report, so the
+        // caller learns what was done and the work can still be committed.
+        limitReached = true;
+        answer = await wrapUp(options, messages, push, usage);
+      } else {
+        answer = "(the model finished without an answer)";
       }
-      answer = "(the model finished without an answer)";
     }
 
     session.append({
@@ -202,9 +223,10 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       turns,
       usage,
       answer,
+      ...(limitReached ? { error: `turn limit of ${options.maxTurns} reached` } : {}),
     });
 
-    return { answer, turns, usage, compactions, ...trace };
+    return { answer, limitReached, turns, usage, compactions, ...trace };
   } catch (error) {
     session.append({
       type: "run_end",
@@ -223,6 +245,40 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     await kap.stop();
     await session.flush();
   }
+}
+
+/** Share of the turn budget after which the model is told to wrap up. */
+const REMIND_AT = 0.8;
+
+const WRAP_UP =
+  "[cocseak] The turn limit is reached and tools are now off. Write the final report: what you " +
+  "changed, what you verified and how, and exactly what is left undone.";
+
+async function wrapUp(
+  options: AgentOptions,
+  messages: ChatMessage[],
+  push: (message: ChatMessage) => void,
+  usage: Usage,
+): Promise<string> {
+  push({ role: "user", content: WRAP_UP });
+  try {
+    const turn = await options.provider.complete(
+      messages,
+      toolSchemas(options.tools),
+      undefined,
+      options.signal,
+      "none",
+    );
+    addUsage(usage, turn.usage);
+    const report = turn.content.trim();
+    if (report !== "") {
+      push({ role: "assistant", content: turn.content });
+      return report;
+    }
+  } catch {
+    // The report is a courtesy; the work and its record stand without it.
+  }
+  return `(turn limit of ${options.maxTurns} reached; the model wrote no report)`;
 }
 
 async function executeTool(

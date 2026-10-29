@@ -19,6 +19,8 @@ export interface PromptInput {
   briefing: string | null;
   kapAttempt: string | null;
   toolNames: readonly string[];
+  /** The turn budget; the model plans better when it knows it. */
+  maxTurns?: number;
 }
 
 export function buildSystemPrompt(input: PromptInput): string {
@@ -40,7 +42,23 @@ export function buildSystemPrompt(input: PromptInput): string {
     "- Stop when the task is done or you are blocked. The final message is the report:",
     "  what you changed, how you verified it, and anything left undone.",
     "- Cite the commands you ran in the report, so the result can be checked.",
+    "- Edit files with edit_file or write_file, not with scripts that rewrite them: the record of",
+    "  each change, and the diff someone reviews, come from those tools.",
+    "- Verify once, at the end: run the relevant tests and lints. Do not re-read a file you just",
+    "  wrote or re-run a check that already passed.",
+    "- When the checks pass, stop and report. Do not polish, reformat, or refactor beyond the task.",
+    "- Call independent tools together in one turn; each turn counts against the budget.",
   ];
+
+  if (input.maxTurns !== undefined) {
+    lines.push(
+      "",
+      "## Budget",
+      `You have ${input.maxTurns} turns; a turn is one reply, however many tools it calls. Spend`,
+      "them on the change, not on re-checking it. Near the end you will be told to wrap up, and",
+      "when they run out tools switch off and you write the report.",
+    );
+  }
 
   if (input.kapAttempt) {
     lines.push(
