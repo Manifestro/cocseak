@@ -195,7 +195,7 @@ cocseak doctor [--offline]
 | `--api-key <key>` | Key. Default: `$COCSEAK_API_KEY`, `$DEEPSEEK_API_KEY`, the settings file. |
 | `--max-turns <n>` | Model turns before the run fails. Default: 50. |
 | `--timeout <sec>` | Wall-clock limit. Default: 1800. |
-| `--context-tokens <n>` | Model context window. Older steps are summarized before 75% of it is reached. Default: 128000. |
+| `--context-tokens <n>` | Model context window. Older steps are summarized before 75% of it is reached. Default: `$COCSEAK_CONTEXT_TOKENS`, `config set context-tokens`, the model's known window (`deepseek-flash`: 1000000), or 128000. `cocseak config show` says which applies. |
 | `--json` | Print the report as one JSON object on stdout. |
 | `--answer-only` | Print only the final answer, without the report header. |
 | `--report <path>` | Also write the report to a file (JSON, or Markdown if the name ends in `.md`). |

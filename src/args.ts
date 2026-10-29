@@ -48,7 +48,8 @@ Options:
   --max-turns <n>      Model turns before the run fails. Default: 50.
   --timeout <sec>      Wall-clock limit for the whole run. Default: 1800.
   --context-tokens <n> Model context window. Older steps are summarized before it fills.
-                       Default: 128000.
+                       Default: $COCSEAK_CONTEXT_TOKENS, settings, the model's known window
+                       (deepseek-flash: 1000000), or 128000.
   --json               Print the report as one JSON object on stdout.
   --answer-only        Print only the final answer, without the report header.
   --report <path>      Also write the report to a file (JSON, or Markdown if the name ends .md).

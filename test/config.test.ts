@@ -91,3 +91,30 @@ test("the missing-key error says how to fix it", () => {
     /cocseak config set api-key/,
   );
 });
+
+test("the context window follows the model, and an explicit setting wins", () => {
+  const input = { ...base, baseUrl: undefined, apiKey: undefined, contextTokens: undefined };
+  const flash = resolveConfig({ ...input, model: "deepseek-flash", settings: { api_key: "k" } }, {});
+  assert.equal(flash.contextTokens, 1_000_000);
+
+  const chat = resolveConfig({ ...input, model: "deepseek-chat", settings: { api_key: "k" } }, {});
+  assert.equal(chat.contextTokens, 128_000);
+
+  const saved = resolveConfig(
+    { ...input, model: "deepseek-flash", settings: { api_key: "k", context_tokens: 200_000 } },
+    {},
+  );
+  assert.equal(saved.contextTokens, 200_000);
+
+  const fromEnv = resolveConfig(
+    { ...input, model: "deepseek-flash", settings: { api_key: "k", context_tokens: 200_000 } },
+    { COCSEAK_CONTEXT_TOKENS: "500000" },
+  );
+  assert.equal(fromEnv.contextTokens, 500_000);
+
+  const fromFlag = resolveConfig(
+    { ...input, model: "deepseek-flash", contextTokens: 64_000, settings: { api_key: "k" } },
+    { COCSEAK_CONTEXT_TOKENS: "500000" },
+  );
+  assert.equal(fromFlag.contextTokens, 64_000);
+});

@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { lookupApiKey, lookupBaseUrl, lookupModel, modelsUrl } from "./config.js";
+import { lookupApiKey, lookupBaseUrl, lookupContextTokens, lookupModel, modelsUrl } from "./config.js";
 import { ConfigError } from "./errors.js";
 import { findAttempt, findKapBinary, findKapRoot } from "./kap.js";
 import { gitTopLevel, hasTrackedChanges, readHead } from "./git.js";
@@ -58,6 +58,8 @@ export async function runDoctorCommand(argv: readonly string[]): Promise<number>
   if (!loaded.exists) problems.push("no settings file yet");
   say("model", `${model.value} (${model.source})`);
   say("base", `${base.value} (${base.source})`);
+  const context = lookupContextTokens(undefined, model.value as string, loaded.settings);
+  say("context", `${context.value.toLocaleString("en-US")} tokens (${context.source}), summarized at 75%`);
   if (key.value) {
     say("api key", `${maskKey(key.value)} (${key.source})`);
   } else {

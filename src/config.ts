@@ -17,6 +17,15 @@ export const DEFAULT_MAX_TURNS = 50;
 export const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 export const DEFAULT_CONTEXT_TOKENS = 128_000;
 
+/**
+ * Context windows of models whose window differs from the default. The window decides when older
+ * steps are summarized (at 75%), so a model with a 1M window treated as 128k would be compacted
+ * long before it needs to be. Anything not listed gets the default; `context-tokens` overrides.
+ */
+export const MODEL_CONTEXT_TOKENS: Readonly<Record<string, number>> = {
+  "deepseek-flash": 1_000_000,
+};
+
 export interface ConfigInput {
   baseUrl: string | undefined;
   apiKey: string | undefined;
@@ -38,6 +47,29 @@ function firstSet(...values: Array<string | undefined>): string | undefined {
     if (value !== undefined && value.trim() !== "") return value.trim();
   }
   return undefined;
+}
+
+export interface ContextValue {
+  value: number;
+  source: "flag" | "env" | "config" | "model" | "default";
+}
+
+/** The context window to plan for: flag, env, settings, the model's known window, the default. */
+export function lookupContextTokens(
+  flag: number | undefined,
+  model: string,
+  settings: Settings,
+  env = process.env,
+): ContextValue {
+  if (flag !== undefined) return { value: flag, source: "flag" };
+  const fromEnv = Number(env.COCSEAK_CONTEXT_TOKENS);
+  if (env.COCSEAK_CONTEXT_TOKENS && Number.isInteger(fromEnv) && fromEnv > 0) {
+    return { value: fromEnv, source: "env" };
+  }
+  if (settings.context_tokens !== undefined) return { value: settings.context_tokens, source: "config" };
+  const known = MODEL_CONTEXT_TOKENS[model];
+  if (known !== undefined) return { value: known, source: "model" };
+  return { value: DEFAULT_CONTEXT_TOKENS, source: "default" };
 }
 
 export function lookupModel(flag: string | undefined, settings: Settings, env = process.env): SettingValue {
@@ -83,7 +115,7 @@ export function resolveConfig(input: ConfigInput, env: NodeJS.ProcessEnv = proce
   const timeoutMs =
     input.timeoutMs ??
     (settings.timeout_seconds !== undefined ? settings.timeout_seconds * 1000 : DEFAULT_TIMEOUT_MS);
-  const contextTokens = input.contextTokens ?? settings.context_tokens ?? DEFAULT_CONTEXT_TOKENS;
+  const contextTokens = lookupContextTokens(input.contextTokens, model, settings, env).value;
 
   return {
     baseUrl: baseUrl.replace(/\/+$/, ""),
