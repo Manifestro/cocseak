@@ -68,7 +68,13 @@ export async function runDoctorCommand(argv: readonly string[]): Promise<number>
   const cwd = resolve(process.cwd());
   const workspaceOk = existsSync(cwd) && statSync(cwd).isDirectory();
   const git = isGitWorktree(cwd);
-  say("workspace", `${cwd}${git ? " (git)" : " (not git; changes come from the tool trace)"}`);
+  say("workspace", `${cwd}${git ? " (git)" : " (not a git repository)"}`);
+  if (workspaceOk && !git) {
+    lines.push(
+      `${"note:".padEnd(CHECK_WIDTH)}reports will list the files the agent touched, without line counts;` +
+        " run `git init` for exact stats",
+    );
+  }
   if (!workspaceOk) {
     ready = false;
     problems.push(`workspace does not exist: ${cwd}`);
@@ -92,9 +98,11 @@ export async function runDoctorCommand(argv: readonly string[]): Promise<number>
   lines.push("");
   if (ready) {
     lines.push("result:    ready");
+    lines.push('next:      cocseak --os --title "first task" --task "say hello"');
   } else {
     lines.push("result:    not ready");
     for (const problem of problems) lines.push(`  - ${problem}`);
+    lines.push("next:      fix the items above, then run `cocseak doctor` again");
   }
 
   process.stdout.write(`${lines.join("\n")}\n`);

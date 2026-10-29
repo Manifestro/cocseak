@@ -113,6 +113,7 @@ test("a fresh download can be configured and checked end to end", { timeout: 90_
     const offline = await run(["doctor", "--offline"], env);
     assert.equal(offline.code, 0);
     assert.match(offline.stdout, /result: {4}ready/);
+    assert.match(offline.stdout, /next: {6}cocseak --os/);
 
     // 6. Point it at a provider and let doctor check the key.
     const setBase = await run(["config", "set", "base-url", `http://127.0.0.1:${address.port}/v1`], env);

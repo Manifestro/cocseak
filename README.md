@@ -1,10 +1,11 @@
 # cocseak
 
-**A coding harness with no interface.** One command in, one result out.
+**A coding harness with no interface.** One command in, one report out.
 
-cocseak exists to be called by something else — a router, a queue, a scheduler, another agent.
-It takes a task, runs an agent loop against an OpenAI-compatible model, edits files in a workspace,
-and reports back. There is no REPL, no TUI, and no state between runs.
+cocseak takes a task, runs a coding agent against an OpenAI-compatible model, edits files in a
+workspace, and returns a report: what changed, what it ran, what it decided. It is built to be
+called by something else — a router, a queue, or another agent such as Claude Code or Codex — not
+to sit open in a terminal.
 
 ```sh
 cocseak --os --title "fix the parser" --task "make the lexer accept trailing commas"
@@ -12,54 +13,125 @@ cocseak --os --title "fix the parser" --task "make the lexer accept trailing com
 
 Status: pre-alpha. The loop works end to end; the CLI and the wire formats are still settling.
 
-## Why one-shot
+---
 
-Interactive harnesses are built for a person at a keyboard. A router cannot use one: it needs a
-process that starts, does the work, exits with a meaningful code, and prints something a program can
-parse. That is the whole design constraint here, and it explains most of the choices below.
+## Start here
 
-- **No UI.** `--os` is the only mode. Without it, cocseak tells you what it is and exits.
-- **A report, not a transcript.** The result is a compact report — status, files changed, commands
-  and their exit codes, decisions — followed by the answer. `--json` prints the same thing as one
-  object a program can parse.
-- **Documented exit codes.** Timeouts, usage errors, and "the model never finished" are distinct.
-- **One workspace.** The agent may only touch files under `--cwd`; paths that escape are refused.
-- **Nothing depends on KAP.** When [KAP](https://github.com/Manifestro/kap) is present, the run is
-  recorded through its hooks; when it is not, the same session log is still written.
+From a clean install, this is the whole job:
+
+```sh
+cocseak config set api-key sk-...        # once; or export DEEPSEEK_API_KEY
+cocseak doctor                           # can it run?
+cocseak --os --title "hello" --task "say hello"
+```
+
+That is it. The defaults are DeepSeek (`deepseek-chat`, `https://api.deepseek.com/v1`); you only
+need to supply a key.
+
+### 1. Give it a key
+
+Either save it, or export it in your shell:
+
+```sh
+cocseak config set api-key sk-...        # ~/.cocseak/config.json, chmod 600
+export DEEPSEEK_API_KEY=sk-...           # or this; the shell wins over the file
+```
+
+`cocseak config` shows what is in effect and where each value comes from. The key is always masked.
+
+### 2. Check that it can run
+
+```sh
+cocseak doctor
+```
+
+```text
+cocseak doctor
+
+config:    /Users/me/.cocseak/config.json (missing)
+model:     deepseek-chat (default)
+base:      https://api.deepseek.com/v1 (default)
+api key:   sk-…b23c (env)
+workspace: /Users/me/work/project (not a git repository)
+note:      reports will list the files the agent touched, without line counts; run `git init` for exact stats
+kap:       kap 0.1.2 — not inside an attempt (run inside .kap/worktrees/<id> to record)
+api:       ok — 2 model(s) available
+
+result:    ready
+next:      cocseak --os --title "first task" --task "say hello"
+```
+
+What each line means:
+
+| line | what it tells you |
+| --- | --- |
+| `config` | where the settings file is; `(missing)` is fine when the key comes from the environment |
+| `model` / `base` | what will actually be used, and whether it came from a flag, env, the config file, or the default |
+| `api key` | masked key and its source; `not set` is the one thing that stops a run |
+| `workspace` | the directory the agent may edit — the current directory unless you pass `--cwd` |
+| `kap` | whether KAP will record this run; not being in an attempt is normal outside KAP |
+| `api` | a real request to the provider: is the URL reachable and the key accepted |
+| `result` | `ready` means "go run a task"; `not ready` lists what to fix |
+
+`--offline` skips the provider check when you have no network.
+
+### 3. Run a task
+
+```sh
+cd ~/work/project
+cocseak --os --title "notes" --task "create NOTES.md with a short summary of this repository"
+```
+
+You get a report, then the agent's answer:
+
+```text
+status: completed · 3 turns · 12.4 s · deepseek-chat
+changed: 1 file(s) (+12 -0) · NOTES.md
+ran: ls → 0 · cat package.json → 0
+session: /Users/me/.cocseak/sessions/project-1a2b3c4d/run-20260101T101010-abc123/session.v1.jsonl
+
+Created NOTES.md ... (the agent's report)
+```
+
+- `status` — finished, in how many model turns, how long, on which model;
+- `changed` — files changed. Exact line counts come from git; in a plain directory the list comes
+  from what the agent touched, so `git init` is worth it;
+- `ran` — every shell command with its exit code;
+- `session` — the full JSONL log of the run, on disk;
+- then the answer itself.
+
+### If something is off
+
+| what you see | what to do |
+| --- | --- |
+| `not ready` / `no API key` | `cocseak config set api-key sk-...`, or export `DEEPSEEK_API_KEY` |
+| `HTTP 401 — the key was rejected` | the key is wrong or from another provider; set a new one |
+| `workspace: ... (not a git repository)` | optional: `git init` so `changed` includes +/− line counts |
+| `kap: ... not inside an attempt` | optional: see [Recording with KAP](#recording-with-kap) |
+| exit code `3` | the run hit `--timeout`; raise it for long builds |
+| exit code `4` | the model used all `--max-turns`; raise it or split the task |
+| exit code `1` | the run failed; the message above says why |
+
+---
 
 ## Install
 
 Requires Node 22 or newer.
 
 ```sh
+git clone https://github.com/Manifestro/cocseak.git
+cd cocseak
 pnpm install
 pnpm build
-node bin/cocseak.js --help
+npm install -g .            # puts `cocseak` on your PATH
+cocseak --version
 ```
 
-Or link it as a global binary during development:
-
-```sh
-pnpm link --global
-cocseak --os --task "run the tests and fix what breaks" --cwd .
-```
-
-## Quickstart
-
-The first three commands are the whole setup:
-
-```sh
-cocseak config set api-key sk-...      # stored in ~/.cocseak/config.json, chmod 600
-cocseak doctor                          # settings, workspace, KAP, provider
-cocseak --os --title "hello" --task "say hello"
-```
-
-Run `cocseak` with no arguments at any point and it prints this. Nothing else is required: the
-defaults are DeepSeek (`deepseek-chat`, `https://api.deepseek.com/v1`).
+For development, `node bin/cocseak.js ...` works without installing.
 
 ## Settings
 
-Settings live in `~/.cocseak/config.json` (override the directory with `COCSEAK_HOME`):
+Stored in `~/.cocseak/config.json` (override the directory with `COCSEAK_HOME`):
 
 ```json
 {
@@ -72,58 +144,43 @@ Settings live in `~/.cocseak/config.json` (override the directory with `COCSEAK_
 ```
 
 ```sh
-cocseak config                       # what is in effect, and where each value comes from
-cocseak config path                  # the file being read
+cocseak config                        # effective values and their sources
+cocseak config path                   # the file being read
 cocseak config set model deepseek-reasoner
 cocseak config set base-url https://openrouter.ai/api/v1
 cocseak config set api-key sk-...
 cocseak config unset api-key
 ```
 
-Precedence, highest first: **flags → environment → settings file → defaults**. The key is masked
-whenever it is printed. The file is written with mode `600`; nothing else in it is secret.
+Precedence, highest first: **flags → environment → settings file → defaults**. Anything
+OpenAI-compatible works — DeepSeek is only the default:
 
-## Doctor
-
-`cocseak doctor` answers "can I run?" before a task is spent on it:
-
-```text
-$ cocseak doctor
-cocseak doctor
-
-config:    /Users/me/.cocseak/config.json
-model:     deepseek-chat (default)
-base:      https://api.deepseek.com/v1 (default)
-api key:   sk-…f3a9 (config)
-workspace: /repo (git)
-kap:       kap 0.1.2 — attempt attempt-01m64… (recording)
-api:       ok — 12 model(s) available
-
-result:    ready
+```sh
+cocseak --os --task "..." \
+  --base-url https://openrouter.ai/api/v1 \
+  --model qwen/qwen3-coder \
+  --api-key "$OPENROUTER_API_KEY"
 ```
-
-It exits `1` when something would stop a run (no key, rejected key, unreachable provider), `2` on
-usage errors, and `0` when ready. `--offline` skips the provider probe.
 
 ## Usage
 
 ```sh
 cocseak --os --title <title> --task <task> [options]
 cocseak --os --title <title> --task-file <path> [options]
+cocseak config [show|path|set|unset]
+cocseak doctor [--offline]
 ```
-
-`--task-file` exists for routers that would rather not fight shell quoting with a long prompt.
 
 | Flag | Meaning |
 | --- | --- |
 | `--os` | One-shot mode. Required. |
-| `--task <text>` | What to do. Mutually exclusive with `--task-file`. |
-| `--task-file <path>` | Read the task from a file. |
-| `--title <text>` | Label for the run and for the KAP attempt briefing. Empty is allowed. |
+| `--task <text>` | What to do. Mutually exclusive with `--task-file`. `-` reads stdin. |
+| `--task-file <path>` | Read the task from a file. `-` reads stdin. |
+| `--title <text>` | Label for the run. Empty is allowed. Defaults to the directory name. |
 | `--cwd <path>` | Workspace the agent may read and write. Default: the process cwd. |
 | `--model <id>` | Model id. Default: `$COCSEAK_MODEL`, `$DEEPSEEK_MODEL`, `deepseek-chat`. |
 | `--base-url <url>` | OpenAI-compatible base URL. Default: `$COCSEAK_BASE_URL`, `$DEEPSEEK_BASE_URL`, `https://api.deepseek.com/v1`. |
-| `--api-key <key>` | Key. Default: `$COCSEAK_API_KEY`, `$DEEPSEEK_API_KEY`. |
+| `--api-key <key>` | Key. Default: `$COCSEAK_API_KEY`, `$DEEPSEEK_API_KEY`, the settings file. |
 | `--max-turns <n>` | Model turns before the run fails. Default: 50. |
 | `--timeout <sec>` | Wall-clock limit. Default: 1800. |
 | `--json` | Print the report as one JSON object on stdout. |
@@ -133,15 +190,6 @@ cocseak --os --title <title> --task-file <path> [options]
 | `--kap <auto\|on\|off>` | KAP adapter. Default: auto. |
 | `--no-briefing` | Skip the KAP attempt briefing. |
 | `--version`, `--help` | The usual. |
-
-Anything OpenAI-compatible works — DeepSeek is only the default:
-
-```sh
-cocseak --os --task "..." \
-  --base-url https://openrouter.ai/api/v1 \
-  --model qwen/qwen3-coder \
-  --api-key "$OPENROUTER_API_KEY"
-```
 
 ## What the agent can do
 
@@ -160,23 +208,7 @@ waiting to happen.
 
 ## The report
 
-The product of a run is a report, not a transcript. By default it is a few lines of facts followed
-by the agent's answer — small enough to paste into another agent's context:
-
-```text
-$ cocseak --os --title "lint" --task "fix lint errors"
-status: completed · 4 turns · 18.4 s · deepseek-chat
-changed: 2 file(s) (+24 -9) · src/cli.ts, src/args.ts
-ran: pnpm lint → 0 · pnpm test → 0
-decisions: 1
-session: /Users/me/.cocseak/sessions/repo-1a2b3c4d/run-20260101T101010-abc123/session.v1.jsonl
-
-Fixed 3 issues: unused import in src/cli.ts, an unreachable branch in src/args.ts, and a
-missing case in the lint config. Ran pnpm lint and pnpm test; both pass.
-```
-
-`--answer-only` drops the header. `--report <path>` also writes the report to disk — JSON by
-default, Markdown when the name ends in `.md`. `--json` prints the report itself:
+The product of a run is a report, not a transcript. `--json` prints it as one object:
 
 ```json
 {
@@ -204,8 +236,9 @@ default, Markdown when the name ends in `.md`. `--json` prints the report itself
 
 `changes` comes from git when the workspace is a repository (untracked files included), and from
 the tool trace otherwise. Files that were already dirty when the run started are left out, so a
-nested caller sees what this run changed rather than what was lying around. On failure the same channel carries a report with `ok: false` and an
-`error.kind`, so a caller never has to scrape stderr:
+nested caller sees what this run changed rather than what was lying around.
+
+On failure the same channel carries a report with `ok: false`:
 
 ```json
 {
@@ -245,23 +278,25 @@ cocseak --os --title "parser" --task "make the lexer accept trailing commas" --j
 
 ## Recording with KAP
 
-When the working directory is inside a KAP attempt worktree and `kap` is on `PATH`, cocseak reports
-to KAP the same way Claude Code does — through KAP's four hooks. A run shows up in `kap log` as
-commands, file changes, and decisions, and file writes land as observed evidence:
+[KAP](https://github.com/Manifestro/kap) records what an agent did: commands, file changes,
+decisions, evidence. cocseak reports through KAP's hooks, the same way Claude Code does, and only
+when it runs inside an attempt worktree:
 
-```text
-$ kap log
-17:56:37  command   echo hi from cocseak  exit 0  [subagent: cocseak]
-17:56:37  decision  use hooks to record
-              why: KAP reads them directly
-              instead of: kap import cocseak
+```sh
+kap attempt start fix-parser --task "make the parser accept trailing commas"
+cd .kap/worktrees/attempt-...
+cocseak --os --title "parser" --task "make the parser accept trailing commas"
+kap log
 ```
 
-See [docs/KAP.md](docs/KAP.md) for the mapping, the payloads, and what is still missing.
+```text
+18:16:25  command   pnpm test  exit 0  [subagent: cocseak]
+18:16:25  file_change Write src/lexer.ts  [subagent: cocseak]
+```
 
-Every run also writes an append-only session log under `~/.cocseak/sessions/` (override with
-`COCSEAK_HOME`). It does not depend on KAP and is meant to become the input of a future
-`kap import cocseak`.
+File writes also become observed evidence with the file's hash, and `kap status` shows the count.
+`cocseak doctor` tells you whether recording is on. The full adapter design, payloads, and known
+gaps are in [docs/KAP.md](docs/KAP.md).
 
 ## Design notes
 
