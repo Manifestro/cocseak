@@ -121,7 +121,7 @@ function describeKap(cwd: string): string {
   if (attempt) return `${label} — attempt ${attempt} (recording)`;
 
   const root = findKapRoot(cwd);
-  if (!root) return `${label} — not in a KAP repository (set one up with \`kap init\`)`;
+  if (!root) return `${label} — no KAP repository here; a run will create one`;
   if (!isCleanWorktree(root)) {
     return `${label} — uncommitted changes; a run will not start an attempt (commit or stash first)`;
   }

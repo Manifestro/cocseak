@@ -34,6 +34,11 @@ function fakeKap(directory: string): { bin: string; log: string } {
     join(bin, "kap"),
     `#!/bin/sh
 printf 'ARGS %s\\n' "$*" >> "${log}"
+if [ "$1" = "init" ]; then
+  mkdir -p "$PWD/.kap"
+  printf '.kap/\n' >> "$PWD/.gitignore"
+  exit 0
+fi
 if [ "$1" = "attempt" ] && [ "$2" = "start" ]; then
   WT="$PWD/.kap/worktrees/attempt-test-1"
   mkdir -p "$WT"
@@ -72,6 +77,7 @@ test("starts an attempt in a clean KAP repository and moves the run there", () =
         runId: "run-1",
         task: "fix the parser",
         title: "Fix Parser",
+        init: true,
         debug: () => {},
       });
 
@@ -103,6 +109,7 @@ test("does not start an attempt over uncommitted work", () => {
         runId: "run-1",
         task: "x",
         title: "x",
+        init: true,
         debug: () => {},
       });
       assert.equal(attached.created, null);
@@ -117,6 +124,7 @@ test("does not start an attempt over uncommitted work", () => {
             runId: "run-1",
             task: "x",
             title: "x",
+            init: true,
             debug: () => {},
           }),
         ConfigError,
@@ -142,11 +150,45 @@ test("stays out of the way without a KAP repository", () => {
         runId: "run-1",
         task: "x",
         title: "x",
+        init: false,
         debug: () => {},
       });
       assert.equal(attached.created, null);
       assert.equal(attached.adapter.state.active, false);
-      assert.match(attached.adapter.state.reason, /no \.kap/);
+      assert.match(attached.note ?? "", /no \.kap/);
+    });
+  } finally {
+    dir.cleanup();
+    tools.cleanup();
+  }
+});
+
+test("bootstraps a bare directory: git, baseline commit, kap init, attempt", () => {
+  const dir = tempDir();
+  const tools = tempDir();
+  try {
+    writeFileSync(join(dir.path, "README.md"), "# new project\n");
+    const { bin } = fakeKap(tools.path);
+
+    withPath(bin, () => {
+      const attached = attachKap({
+        cwd: dir.path,
+        mode: "auto",
+        runId: "run-1",
+        task: "translate the readme",
+        title: "Translate",
+        init: true,
+        debug: () => {},
+      });
+
+      assert.equal(attached.created?.attempt, "attempt-test-1");
+      assert.equal(attached.adapter.state.active, true);
+      assert.ok(attached.notes.some((note) => /no git repository/.test(note)));
+      assert.ok(attached.notes.some((note) => /initialised KAP/.test(note)));
+
+      const log = execFileSync("git", ["log", "--oneline"], { cwd: dir.path, encoding: "utf8" });
+      assert.match(log, /cocseak: baseline/);
+      assert.match(log, /chore: ignore \.kap/);
     });
   } finally {
     dir.cleanup();

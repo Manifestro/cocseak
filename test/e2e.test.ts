@@ -141,7 +141,7 @@ exit 0
     child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
 
     const code: number | null = await new Promise((resolve) => child.on("close", resolve));
-    assert.equal(code, 0, `stderr:\n${stderr}`);
+    assert.equal(code, 0, `stdout:\n${stdout}\nstderr:\n${stderr}`);
     assert.equal(requests, 3);
 
     const report = JSON.parse(stdout.trim()) as {

@@ -19,6 +19,7 @@ export interface CliOptions {
   answerOnly: boolean;
   reportPath: string | undefined;
   kap: "auto" | "on" | "off";
+  init: boolean;
   briefing: boolean;
   help: boolean;
   version: boolean;
@@ -49,6 +50,7 @@ Options:
   --report <path>      Also write the report to a file (JSON, or Markdown if the name ends .md).
   --quiet              Do not print progress to stderr.
   --kap <mode>         KAP adapter: auto | on | off. Default: auto.
+  --no-init            Do not create git or .kap automatically; fail instead.
   --no-briefing        Do not ask KAP for the attempt briefing at startup.
   --help, -h           Show this help.
   --version, -v        Print the version.
@@ -94,6 +96,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
         "answer-only": { type: "boolean" },
         report: { type: "string" },
         kap: { type: "string" },
+        "no-init": { type: "boolean" },
         "no-briefing": { type: "boolean" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
@@ -129,6 +132,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     answerOnly: values["answer-only"] === true,
     reportPath: values.report,
     kap,
+    init: values["no-init"] !== true,
     briefing: values["no-briefing"] !== true,
     help: values.help === true,
     version: values.version === true,

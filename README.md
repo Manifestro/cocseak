@@ -188,6 +188,7 @@ cocseak doctor [--offline]
 | `--report <path>` | Also write the report to a file (JSON, or Markdown if the name ends in `.md`). |
 | `--quiet` | No progress on stderr. |
 | `--kap <auto\|on\|off>` | KAP adapter. `auto` records in an attempt and starts one in a clean KAP repo; `on` requires KAP; `off` disables. Default: auto. |
+| `--no-init` | Never create a git repository or `.kap` automatically; if they are missing, run unrecorded instead. |
 | `--no-briefing` | Skip the KAP attempt briefing. |
 | `--version`, `--help` | The usual. |
 
@@ -317,6 +318,20 @@ $ kap log
 ```
 
 File writes also become observed evidence with the file's hash, and `kap status` counts them.
+
+If the directory is not a repository at all, the first run sets it up: `git init`, a baseline
+commit of the current files, `kap init`, then the attempt. That is what makes "just run it"
+work in a fresh folder:
+
+```text
+kap: no git repository here — initialised one
+kap: committed the current files as a baseline
+kap: initialised KAP (.kap/)
+kap: created attempt attempt-01m64… on kap/attempt-01m64…
+```
+
+`--no-init` disables all of that: without git and `.kap`, the run happens in place and is not
+recorded.
 
 Two deliberate limits:
 

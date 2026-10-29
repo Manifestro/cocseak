@@ -113,9 +113,18 @@ export async function main(argv: readonly string[]): Promise<number> {
     };
 
     // KAP attaches itself: in an attempt it records, in a clean KAP repository it starts one.
-    const attached = attachKap({ cwd: requestedCwd, mode: options.kap, runId, task, title, debug });
+    const attached = attachKap({
+      cwd: requestedCwd,
+      mode: options.kap,
+      runId,
+      task,
+      title,
+      init: options.init,
+      debug,
+    });
     cwd = attached.workspace;
     kap = attached.adapter;
+    for (const note of attached.notes) say(`kap: ${note}`);
     if (attached.created) {
       say(`kap: created attempt ${attached.created.attempt} on ${attached.created.branch}`);
       say(`kap: working in ${attached.created.worktree}`);

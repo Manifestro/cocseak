@@ -124,7 +124,10 @@ test("a fresh download can be configured and checked end to end", { timeout: 90_
     assert.match(online.stdout, /ok — 1 model/);
 
     // 7. Run a task with no flags beyond --os: everything comes from the settings file.
-    const task = await run(["--os", "--title", "first", "--task", "say hi", "--json"], env);
+    const task = await run(
+      ["--os", "--title", "first", "--task", "say hi", "--json", "--no-init"],
+      env,
+    );
     assert.equal(task.code, 0, task.stderr);
     const report = JSON.parse(task.stdout.trim()) as { ok: boolean; answer: string; kap: { active: boolean } };
     assert.equal(report.ok, true);
