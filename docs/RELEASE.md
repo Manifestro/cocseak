@@ -50,7 +50,8 @@ ls                       # NOTES.md is now in the main checkout
 | provider 401 | exit 1, HTTP 401 in the message |
 | hanging provider + `--timeout 2` | exit 3 after ~2 s |
 | `kill -INT` during a run | exit 130, "interrupted" |
-| dirty KAP repository | attempt is not started, note printed |
+| KAP repository with uncommitted tracked changes | exit 2, "will not edit the main checkout unrecorded" |
+| git repository with history, no `.kap` | runs unrecorded, note says to run `kap init`; no commit made |
 | `--kap on` without KAP | exit 2, clear error |
 
 ## 5. Version
@@ -66,6 +67,6 @@ Bump `package.json` and `src/version.ts` together; `cocseak --version` must matc
 - Context is compacted at 75% of `--context-tokens`; each compaction costs one extra model call.
 - Workspace confinement is path-based (symlinks are resolved and refused), but `bash` is not a
   sandbox: it can do anything the user can.
-- A dirty worktree is never turned into an attempt; commit or stash first.
-- KAP runs are attributed to `claude-code` on the run row (per-event `agent_type` says `cocseak`);
-  fixing that needs an `--agent` flag in KAP.
+- A KAP repository with uncommitted tracked changes is refused; commit or stash first, or `--kap off`.
+- `glob` and `grep` skip symlinks, so KAP's shared links (`data/`) are not searched; `read_file`
+  reads through them and `bash` sees them, but nothing writes through them.

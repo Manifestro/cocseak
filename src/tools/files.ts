@@ -8,8 +8,14 @@ import { ToolInputError, truncateForModel } from "./types.js";
 const READ_LIMIT_LINES = 2000;
 const MAX_READ_BYTES = 10 * 1024 * 1024;
 
-/** Resolve a tool path and refuse anything outside the workspace, symlinks included. */
-export function resolveWorkspacePath(cwd: string, input: string): string {
+/**
+ * Resolve a tool path and refuse anything outside the workspace, symlinks included.
+ *
+ * `sharedRoot` is the KAP repository an attempt worktree belongs to. KAP links shared paths such as
+ * `data/` from it into the worktree, so reading through such a link is allowed. Writing is not: a
+ * write into the main checkout would change shared state outside the attempt and its record.
+ */
+export function resolveWorkspacePath(cwd: string, input: string, sharedRoot?: string | null): string {
   const absolute = isAbsolute(input) ? resolve(input) : resolve(cwd, input);
   const rel = relative(cwd, absolute);
   if (escapes(rel)) {
@@ -21,8 +27,10 @@ export function resolveWorkspacePath(cwd: string, input: string): string {
   const root = safeRealpath(cwd);
   const probe = nearestExisting(absolute);
   if (probe !== null) {
-    const relReal = relative(root, safeRealpath(probe));
-    if (escapes(relReal)) {
+    const real = safeRealpath(probe);
+    const relReal = relative(root, real);
+    const shared = sharedRoot ? !escapes(relative(safeRealpath(sharedRoot), real)) : false;
+    if (escapes(relReal) && !shared) {
       throw new ToolInputError(`path "${input}" resolves outside the workspace (${cwd})`);
     }
   }
@@ -75,7 +83,7 @@ export const readFileTool: Tool = {
   async run(args, context): Promise<ToolResult> {
     const input = typeof args.path === "string" ? args.path : "";
     if (input === "") throw new ToolInputError('missing required argument "path"');
-    const absolute = resolveWorkspacePath(context.cwd, input);
+    const absolute = resolveWorkspacePath(context.cwd, input, context.kap?.state.root);
 
     try {
       const info = await stat(absolute);

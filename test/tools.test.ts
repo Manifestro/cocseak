@@ -182,3 +182,29 @@ test("refuses to read an unreasonably large file", async () => {
     dir.cleanup();
   }
 });
+
+test("reads through a KAP shared link but never writes through it", async () => {
+  const main = tempDir();
+  const worktree = tempDir();
+  try {
+    writeFileSync(join(main.path, "train.jsonl"), "{}\n");
+    symlinkSync(main.path, join(worktree.path, "data"), "dir");
+    const kap = { state: { active: true, root: main.path, attempt: "a", binary: "kap", reason: "" } };
+    const attempt: ToolContext = {
+      cwd: worktree.path,
+      kap: kap as unknown as ToolContext["kap"],
+      signal: new AbortController().signal,
+    };
+
+    const read = await readFileTool.run({ path: "data/train.jsonl" }, attempt);
+    assert.equal(read.isError, false);
+    assert.match(read.output, /\{\}/);
+    await assert.rejects(
+      () => writeFileTool.run({ path: "data/new.jsonl", content: "x" }, attempt),
+      /outside the workspace/,
+    );
+  } finally {
+    main.cleanup();
+    worktree.cleanup();
+  }
+});
