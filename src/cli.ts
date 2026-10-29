@@ -9,6 +9,8 @@ import { parseCliArgs, USAGE, type CliOptions } from "./args.js";
 import { resolveConfig } from "./config.js";
 import { ConfigError, MaxTurnsError, ProviderError, TimeoutError, UsageError } from "./errors.js";
 import { captureBaseline, collectChanges } from "./git.js";
+import { runConfigCommand } from "./config-cli.js";
+import { runDoctorCommand } from "./doctor.js";
 import { KapAdapter } from "./kap.js";
 import {
   EXIT_FAILURE,
@@ -28,11 +30,24 @@ import {
   type FailureReport,
 } from "./report.js";
 import { newRunId, SessionLog } from "./session.js";
+import { loadSettings, settingsPath } from "./settings.js";
 import { resolveTask } from "./task.js";
 import { TOOLS } from "./tools/index.js";
 import { VERSION } from "./version.js";
 
 export async function main(argv: readonly string[]): Promise<number> {
+  const first = argv[0];
+  if (first === "config") return runConfigCommand(argv.slice(1));
+  if (first === "doctor") return runDoctorCommand(argv.slice(1));
+  if (first === "help") {
+    process.stdout.write(USAGE);
+    return EXIT_OK;
+  }
+  if (first === undefined) {
+    printWelcome();
+    return EXIT_OK;
+  }
+
   let options: CliOptions;
   try {
     options = parseCliArgs(argv);
@@ -75,6 +90,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     const task = resolveTask(options, readStdinIfRequested(options));
     if (task.trim() === "") throw new UsageError("the task is empty");
 
+    const loadedSettings = loadSettings();
     const config = resolveConfig({
       baseUrl: options.baseUrl,
       apiKey: options.apiKey,
@@ -82,6 +98,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       maxTurns: options.maxTurns,
       timeoutMs: options.timeoutMs,
       briefing: options.briefing,
+      settings: loadedSettings.settings,
     });
     model = config.model;
 
@@ -204,6 +221,18 @@ export async function main(argv: readonly string[]): Promise<number> {
     }
     return fail(error, classify(error), { title, model, cwd, session }, json);
   }
+}
+
+function printWelcome(): void {
+  process.stdout.write(
+    `cocseak ${VERSION} — one-shot coding harness for OpenAI-compatible models\n\n` +
+      "First run:\n" +
+      "  cocseak config set api-key <key>     store the key (or export DEEPSEEK_API_KEY)\n" +
+      "  cocseak doctor                       check settings, workspace, API, and KAP\n" +
+      "  cocseak --os --title \"hello\" --task \"say hello\"\n\n" +
+      `Settings: ${settingsPath()}\n` +
+      "All flags: cocseak --help\n",
+  );
 }
 
 function readStdinIfRequested(options: CliOptions): string {

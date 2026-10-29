@@ -53,6 +53,15 @@ Options:
   --help, -h           Show this help.
   --version, -v        Print the version.
 
+Commands:
+  config [show|path|set|unset]   Show or change settings: model, base-url, api-key,
+                                 max-turns, timeout.
+  doctor [--offline]             Check settings, workspace, KAP, and the provider.
+  help                           This text.
+
+Settings live in ~/.cocseak/config.json (override the directory with COCSEAK_HOME).
+Flags > environment > settings file > defaults.
+
 Exit codes:
   0  the task finished
   1  the run failed (provider, tool, or internal error)

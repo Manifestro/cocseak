@@ -44,6 +44,67 @@ pnpm link --global
 cocseak --os --task "run the tests and fix what breaks" --cwd .
 ```
 
+## Quickstart
+
+The first three commands are the whole setup:
+
+```sh
+cocseak config set api-key sk-...      # stored in ~/.cocseak/config.json, chmod 600
+cocseak doctor                          # settings, workspace, KAP, provider
+cocseak --os --title "hello" --task "say hello"
+```
+
+Run `cocseak` with no arguments at any point and it prints this. Nothing else is required: the
+defaults are DeepSeek (`deepseek-chat`, `https://api.deepseek.com/v1`).
+
+## Settings
+
+Settings live in `~/.cocseak/config.json` (override the directory with `COCSEAK_HOME`):
+
+```json
+{
+  "api_key": "sk-...",
+  "model": "deepseek-chat",
+  "base_url": "https://api.deepseek.com/v1",
+  "max_turns": 50,
+  "timeout_seconds": 1800
+}
+```
+
+```sh
+cocseak config                       # what is in effect, and where each value comes from
+cocseak config path                  # the file being read
+cocseak config set model deepseek-reasoner
+cocseak config set base-url https://openrouter.ai/api/v1
+cocseak config set api-key sk-...
+cocseak config unset api-key
+```
+
+Precedence, highest first: **flags → environment → settings file → defaults**. The key is masked
+whenever it is printed. The file is written with mode `600`; nothing else in it is secret.
+
+## Doctor
+
+`cocseak doctor` answers "can I run?" before a task is spent on it:
+
+```text
+$ cocseak doctor
+cocseak doctor
+
+config:    /Users/me/.cocseak/config.json
+model:     deepseek-chat (default)
+base:      https://api.deepseek.com/v1 (default)
+api key:   sk-…f3a9 (config)
+workspace: /repo (git)
+kap:       kap 0.1.2 — attempt attempt-01m64… (recording)
+api:       ok — 12 model(s) available
+
+result:    ready
+```
+
+It exits `1` when something would stop a run (no key, rejected key, unreachable provider), `2` on
+usage errors, and `0` when ready. `--offline` skips the provider probe.
+
 ## Usage
 
 ```sh
