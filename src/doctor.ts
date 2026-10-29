@@ -4,7 +4,8 @@ import { resolve } from "node:path";
 
 import { lookupApiKey, lookupBaseUrl, lookupModel, modelsUrl } from "./config.js";
 import { ConfigError } from "./errors.js";
-import { findAttempt, findKapBinary } from "./kap.js";
+import { findAttempt, findKapBinary, findKapRoot } from "./kap.js";
+import { isCleanWorktree } from "./git.js";
 import { loadSettings, maskKey } from "./settings.js";
 
 export interface DoctorOptions {
@@ -118,7 +119,13 @@ function describeKap(cwd: string): string {
 
   const attempt = findAttempt(cwd);
   if (attempt) return `${label} — attempt ${attempt} (recording)`;
-  return `${label} — not inside an attempt (run inside .kap/worktrees/<id> to record)`;
+
+  const root = findKapRoot(cwd);
+  if (!root) return `${label} — not in a KAP repository (set one up with \`kap init\`)`;
+  if (!isCleanWorktree(root)) {
+    return `${label} — uncommitted changes; a run will not start an attempt (commit or stash first)`;
+  }
+  return `${label} — no attempt yet; a run will start one automatically`;
 }
 
 interface ApiCheck {

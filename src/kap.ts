@@ -48,6 +48,21 @@ export class KapAdapter {
     this.debug = debug;
   }
 
+  /** An adapter that will not record, with a reason worth printing. */
+  static inactive(
+    cwd: string,
+    runId: string,
+    reason: string,
+    debug: (message: string) => void = () => {},
+  ): KapAdapter {
+    return new KapAdapter(
+      cwd,
+      runId,
+      { active: false, root: null, attempt: null, binary: null, reason },
+      debug,
+    );
+  }
+
   static detect(options: {
     cwd: string;
     mode: KapMode;

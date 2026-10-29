@@ -54,7 +54,7 @@ base:      https://api.deepseek.com/v1 (default)
 api key:   sk-…b23c (env)
 workspace: /Users/me/work/project (not a git repository)
 note:      reports will list the files the agent touched, without line counts; run `git init` for exact stats
-kap:       kap 0.1.2 — not inside an attempt (run inside .kap/worktrees/<id> to record)
+kap:       kap 0.1.2 — not in a KAP repository (set one up with `kap init`)
 api:       ok — 2 model(s) available
 
 result:    ready
@@ -107,7 +107,7 @@ Created NOTES.md ... (the agent's report)
 | `not ready` / `no API key` | `cocseak config set api-key sk-...`, or export `DEEPSEEK_API_KEY` |
 | `HTTP 401 — the key was rejected` | the key is wrong or from another provider; set a new one |
 | `workspace: ... (not a git repository)` | optional: `git init` so `changed` includes +/− line counts |
-| `kap: ... not inside an attempt` | optional: see [Recording with KAP](#recording-with-kap) |
+| `kap: ... not in a KAP repository` | optional: run `kap init` in the repo to record runs |
 | exit code `3` | the run hit `--timeout`; raise it for long builds |
 | exit code `4` | the model used all `--max-turns`; raise it or split the task |
 | exit code `1` | the run failed; the message above says why |
@@ -187,7 +187,7 @@ cocseak doctor [--offline]
 | `--answer-only` | Print only the final answer, without the report header. |
 | `--report <path>` | Also write the report to a file (JSON, or Markdown if the name ends in `.md`). |
 | `--quiet` | No progress on stderr. |
-| `--kap <auto\|on\|off>` | KAP adapter. Default: auto. |
+| `--kap <auto\|on\|off>` | KAP adapter. `auto` records in an attempt and starts one in a clean KAP repo; `on` requires KAP; `off` disables. Default: auto. |
 | `--no-briefing` | Skip the KAP attempt briefing. |
 | `--version`, `--help` | The usual. |
 
@@ -279,24 +279,54 @@ cocseak --os --title "parser" --task "make the lexer accept trailing commas" --j
 ## Recording with KAP
 
 [KAP](https://github.com/Manifestro/kap) records what an agent did: commands, file changes,
-decisions, evidence. cocseak reports through KAP's hooks, the same way Claude Code does, and only
-when it runs inside an attempt worktree:
+decisions, evidence. cocseak connects to it on its own — there is no install step and no flag to
+pass.
+
+Run cocseak in a KAP repository and it starts an attempt for you:
 
 ```sh
-kap attempt start fix-parser --task "make the parser accept trailing commas"
-cd .kap/worktrees/attempt-...
-cocseak --os --title "parser" --task "make the parser accept trailing commas"
-kap log
+cd my-project          # has .kap/ (kap init) and a clean tree
+cocseak --os --title "fix parser" --task "make the parser accept trailing commas"
 ```
 
 ```text
-18:16:25  command   pnpm test  exit 0  [subagent: cocseak]
-18:16:25  file_change Write src/lexer.ts  [subagent: cocseak]
+kap: created attempt attempt-01m64… on kap/attempt-01m64…
+kap: working in /my-project/.kap/worktrees/attempt-01m64…
+kap: review with `kap review attempt-01m64…`, merge with `kap merge attempt-01m64…`
+
+status: completed · 3 turns · 12.4 s · deepseek-chat
+changed: 1 file(s) (+12 -3) · src/lexer.ts
+...
 ```
 
-File writes also become observed evidence with the file's hash, and `kap status` shows the count.
-`cocseak doctor` tells you whether recording is on. The full adapter design, payloads, and known
-gaps are in [docs/KAP.md](docs/KAP.md).
+The report gains `kap.created`, `kap.branch`, and `kap.worktree`. The work happens on a branch in
+`.kap/worktrees/`, not in your checkout, so review and merge stay deliberate:
+
+```sh
+kap review attempt-01m64…
+kap merge attempt-01m64…
+```
+
+If you are already inside an attempt worktree, cocseak records into it instead of starting another
+one. `kap log` shows the run as it happens:
+
+```text
+$ kap log
+18:43:59  command   pnpm test  exit 0  [subagent: cocseak]
+18:43:59  file_change Write src/lexer.ts  [subagent: cocseak]
+```
+
+File writes also become observed evidence with the file's hash, and `kap status` counts them.
+
+Two deliberate limits:
+
+- **A dirty tree is not turned into an attempt.** `kap attempt start` branches from `HEAD`, so
+  uncommitted work would be missing from the worktree. cocseak runs in place, records nothing, and
+  says so; commit or stash first if you want the run recorded.
+- **`--kap off`** switches the adapter off completely, and `--kap on` makes a missing or unusable
+  KAP an error instead of a note.
+
+The full adapter design, payloads, and known gaps are in [docs/KAP.md](docs/KAP.md).
 
 ## Design notes
 

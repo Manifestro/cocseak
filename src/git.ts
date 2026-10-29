@@ -141,7 +141,13 @@ function describe(files: readonly FileChange[]): string {
   return `${files.length} file(s) changed, ${added} insertions(+), ${removed} deletions(-)`;
 }
 
-function isGitWorktree(cwd: string): boolean {
+/** True when the tree has no staged, unstaged, or untracked files. */
+export function isCleanWorktree(cwd: string): boolean {
+  const status = git(cwd, ["status", "--porcelain"]);
+  return status !== null && status.trim() === "";
+}
+
+export function isGitWorktree(cwd: string): boolean {
   const result = git(cwd, ["rev-parse", "--is-inside-work-tree"]);
   return result?.trim() === "true";
 }

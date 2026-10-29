@@ -11,7 +11,8 @@ import { ConfigError, MaxTurnsError, ProviderError, TimeoutError, UsageError } f
 import { captureBaseline, collectChanges } from "./git.js";
 import { runConfigCommand } from "./config-cli.js";
 import { runDoctorCommand } from "./doctor.js";
-import { KapAdapter } from "./kap.js";
+import { attachKap } from "./kap-attach.js";
+import type { KapAdapter } from "./kap.js";
 import {
   EXIT_FAILURE,
   EXIT_INTERRUPTED,
@@ -82,10 +83,11 @@ export async function main(argv: readonly string[]): Promise<number> {
       throw new UsageError("cocseak has no interactive mode: pass --os and a --task");
     }
 
-    cwd = resolve(options.cwd ?? process.cwd());
-    if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
-      throw new UsageError(`--cwd does not exist or is not a directory: ${cwd}`);
+    const requestedCwd = resolve(options.cwd ?? process.cwd());
+    if (!existsSync(requestedCwd) || !statSync(requestedCwd).isDirectory()) {
+      throw new UsageError(`--cwd does not exist or is not a directory: ${requestedCwd}`);
     }
+    cwd = requestedCwd;
 
     const task = resolveTask(options, readStdinIfRequested(options));
     if (task.trim() === "") throw new UsageError("the task is empty");
@@ -102,19 +104,27 @@ export async function main(argv: readonly string[]): Promise<number> {
     });
     model = config.model;
 
-    title = options.title ?? basename(cwd);
+    title = options.title ?? basename(requestedCwd);
     const runId = newRunId();
-    session = new SessionLog(sessionDirectory(cwd, runId), runId);
+    session = new SessionLog(sessionDirectory(requestedCwd, runId), runId);
 
     const debug = (message: string): void => {
       if (process.env.COCSEAK_DEBUG) process.stderr.write(`cocseak: ${message}\n`);
     };
 
-    kap = KapAdapter.detect({ cwd, mode: options.kap, runId, debug });
-    if (kap.state.active) {
+    // KAP attaches itself: in an attempt it records, in a clean KAP repository it starts one.
+    const attached = attachKap({ cwd: requestedCwd, mode: options.kap, runId, task, title, debug });
+    cwd = attached.workspace;
+    kap = attached.adapter;
+    if (attached.created) {
+      say(`kap: created attempt ${attached.created.attempt} on ${attached.created.branch}`);
+      say(`kap: working in ${attached.created.worktree}`);
+      say(`kap: review with \`kap review ${attached.created.attempt}\`, merge with \`kap merge ${attached.created.attempt}\``);
+    } else if (kap.state.active) {
       say(`kap: recording attempt ${kap.state.attempt} (${kap.state.root})`);
     } else {
       debug(`kap: not recording — ${kap.state.reason}`);
+      if (attached.note) say(`kap: ${attached.note}`);
     }
 
     const briefing = config.briefing ? await kap.sessionStart() : null;
@@ -185,7 +195,12 @@ export async function main(argv: readonly string[]): Promise<number> {
         usage: result.usage,
         durationMs: Date.now() - startedAt,
         session: session.path,
-        kap: kap.describe(),
+        kap: {
+          ...kap.describe(),
+          ...(attached.created
+            ? { created: true, branch: attached.created.branch, worktree: attached.created.worktree }
+            : {}),
+        },
         changes: collectChanges(cwd, result.changed, baseline),
         commands: result.commands,
         decisions: result.decisions,

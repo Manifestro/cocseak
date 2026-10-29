@@ -57,13 +57,21 @@ KAP's hook parser knows Claude Code's tool names, so cocseak uses them on the wi
 File paths are sent absolute. KAP stores them relative to the attempt worktree, and reads the file
 itself to hash it — which is why the path must point at a file that exists at hook time.
 
-## Detection
+## Attaching
+
+cocseak connects by itself at startup — the same "it just works" that KAP's Claude Code hooks give,
+without a settings file:
 
 | Condition | Result |
 | --- | --- |
-| `.kap/` above `--cwd`, inside `.kap/worktrees/<attempt>`, `kap` on `PATH` | recording |
-| `.kap/` above `--cwd`, but not inside a worktree | quiet no-op (`--kap on` fails loudly) |
-| no `.kap/` or no `kap` binary | quiet no-op |
+| inside `.kap/worktrees/<attempt>`, `kap` on `PATH` | records into that attempt |
+| `.kap/` repo, no attempt, clean tree | runs `kap attempt start <title> --task <task>` and records in the new worktree |
+| `.kap/` repo, uncommitted changes | runs in place, records nothing, explains why (`--kap on` makes it an error) |
+| no `.kap/`, or no `kap` binary | quiet no-op (`--kap on` makes it an error) |
+
+Starting an attempt is deliberately skipped for a dirty tree: `kap attempt start` branches from
+`HEAD`, so uncommitted work would not be in the worktree. Recording something the agent could not
+see would be worse than not recording.
 
 Hook failures never break the run. They are counted in the `kap.failures` field of the JSON result
 and printed when `COCSEAK_DEBUG=1` is set. KAP itself behaves the same way: a hook that cannot be
