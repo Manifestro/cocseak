@@ -95,12 +95,43 @@ test("starts an attempt in a clean KAP repository and moves the run there", () =
   }
 });
 
-test("does not start an attempt over uncommitted work", () => {
+test("refuses to run over uncommitted tracked work in a KAP repository", () => {
+  const dir = initRepo();
+  const tools = tempDir();
+  try {
+    const { bin, log } = fakeKap(tools.path);
+    writeFileSync(join(dir.path, "README.md"), "# changed\n");
+
+    withPath(bin, () => {
+      for (const mode of ["auto", "on"] as const) {
+        assert.throws(
+          () =>
+            attachKap({
+              cwd: dir.path,
+              mode,
+              runId: "run-1",
+              task: "x",
+              title: "x",
+              init: true,
+              debug: () => {},
+            }),
+          (error: unknown) => error instanceof ConfigError && /unrecorded/.test(error.message),
+        );
+      }
+      assert.equal(existsSync(log), false, "no attempt was started");
+    });
+  } finally {
+    dir.cleanup();
+    tools.cleanup();
+  }
+});
+
+test("starts an attempt despite untracked files, and says they are not in it", () => {
   const dir = initRepo();
   const tools = tempDir();
   try {
     const { bin } = fakeKap(tools.path);
-    writeFileSync(join(dir.path, "README.md"), "# changed\n");
+    writeFileSync(join(dir.path, ".session.prev"), "local state\n");
 
     withPath(bin, () => {
       const attached = attachKap({
@@ -112,23 +143,8 @@ test("does not start an attempt over uncommitted work", () => {
         init: true,
         debug: () => {},
       });
-      assert.equal(attached.created, null);
-      assert.equal(attached.adapter.state.active, false);
-      assert.match(attached.note ?? "", /uncommitted changes/);
-
-      assert.throws(
-        () =>
-          attachKap({
-            cwd: dir.path,
-            mode: "on",
-            runId: "run-1",
-            task: "x",
-            title: "x",
-            init: true,
-            debug: () => {},
-          }),
-        ConfigError,
-      );
+      assert.equal(attached.created?.attempt, "attempt-test-1");
+      assert.ok(attached.notes.some((note) => /1 untracked file/.test(note)));
     });
   } finally {
     dir.cleanup();
@@ -222,13 +238,16 @@ test("works from a subdirectory of an existing KAP repository", () => {
   }
 });
 
-test("initialises at the repository root, not in the subdirectory", () => {
+test("never initialises KAP or commits in a repository that already has history", () => {
   const dir = initRepo();
   const tools = tempDir();
   try {
     rmSync(join(dir.path, ".kap"), { recursive: true, force: true });
+    writeFileSync(join(dir.path, ".gitignore"), "node_modules/\n");
+    git(dir.path, "commit", "-qam", "no kap ignore");
     mkdirSync(join(dir.path, "packages", "app"), { recursive: true });
-    const { bin } = fakeKap(tools.path);
+    const before = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir.path, encoding: "utf8" });
+    const { bin, log } = fakeKap(tools.path);
 
     withPath(bin, () => {
       const attached = attachKap({
@@ -240,9 +259,15 @@ test("initialises at the repository root, not in the subdirectory", () => {
         init: true,
         debug: () => {},
       });
-      assert.equal(attached.created?.attempt, "attempt-test-1");
-      assert.ok(existsSync(join(dir.path, ".kap")), ".kap belongs to the repository root");
-      assert.equal(existsSync(join(dir.path, "packages", "app", ".kap")), false);
+      assert.equal(attached.created, null);
+      assert.equal(attached.adapter.state.active, false);
+      assert.match(attached.note ?? "", /kap init/);
+      assert.equal(existsSync(join(dir.path, ".kap")), false);
+      assert.equal(existsSync(log), false, "kap was never called");
+
+      const after = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir.path, encoding: "utf8" });
+      assert.equal(after, before, "no commit was made");
+      assert.equal(readFileSync(join(dir.path, ".gitignore"), "utf8"), "node_modules/\n");
     });
   } finally {
     dir.cleanup();

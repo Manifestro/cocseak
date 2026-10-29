@@ -190,7 +190,7 @@ cocseak doctor [--offline]
 | `--report <path>` | Also write the report to a file (JSON, or Markdown if the name ends in `.md`). |
 | `--quiet` | No progress on stderr. |
 | `--kap <auto\|on\|off>` | KAP adapter. `auto` records in an attempt and starts one in a clean KAP repo; `on` requires KAP; `off` disables. Default: auto. |
-| `--no-init` | Never create a git repository or `.kap` automatically; if they are missing, run unrecorded instead. |
+| `--no-init` | Never create a git repository or `.kap` automatically, even in a bare directory; if they are missing, run unrecorded instead. A repository with history is never initialised either way. |
 | `--no-commit` | Do not commit the run's changes in the attempt worktree. |
 | `--no-briefing` | Skip the KAP attempt briefing. |
 | `--version`, `--help` | The usual. |
@@ -337,8 +337,10 @@ kap merge attempt-01m64…
 
 When the run finishes, cocseak commits the worktree into the attempt branch (`cocseak: <title>`),
 so the review has a commit to pin and the merge actually carries the files. Broken code is fine
-there — it is a proposal on an isolated branch, never your main tree. `--no-commit` leaves the
-changes uncommitted, in which case `kap merge` will move nothing until you commit yourself.
+there — it is a proposal on an isolated branch, never your main tree. Files over 10 MiB and files
+holding a credential are not committed: they stay in the worktree and the report lists them as
+`not committed`. `--no-commit` leaves the changes uncommitted, in which case `kap merge` will move
+nothing until you commit yourself.
 
 If you are already inside an attempt worktree, cocseak records into it instead of starting another
 one. `kap log` shows the run as it happens:
@@ -351,9 +353,11 @@ $ kap log
 
 File writes also become observed evidence with the file's hash, and `kap status` counts them.
 
-If the directory is not a repository at all, the first run sets it up: `git init`, a baseline
-commit of the current files, `kap init`, then the attempt. That is what makes "just run it"
-work in a fresh folder:
+If the directory is not a repository at all, or a repository with no commits yet, the first run
+sets it up: `git init`, a baseline commit of the current files, `kap init`, then the attempt. That
+is what makes "just run it" work in a fresh folder. A repository that already has history is left
+alone: cocseak never runs `kap init` or commits there by itself, it runs unrecorded and says to run
+`kap init` if you want runs recorded.
 
 ```text
 kap: no git repository here — initialised one
@@ -367,9 +371,10 @@ recorded.
 
 Two deliberate limits:
 
-- **A dirty tree is not turned into an attempt.** `kap attempt start` branches from `HEAD`, so
-  uncommitted work would be missing from the worktree. cocseak runs in place, records nothing, and
-  says so; commit or stash first if you want the run recorded.
+- **A KAP repository with uncommitted tracked changes is refused.** `kap attempt start` branches
+  from `HEAD`, so that work would be missing from the worktree, and editing the checkout in place
+  would go unrecorded. Commit or stash first, or pass `--kap off` to run unrecorded on purpose.
+  Untracked files do not block a run; a note says the worktree does not have them.
 - **`--kap off`** switches the adapter off completely, and `--kap on` makes a missing or unusable
   KAP an error instead of a note.
 

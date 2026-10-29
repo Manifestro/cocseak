@@ -1,4 +1,4 @@
-import type { ChangeSet } from "./git.js";
+import type { ChangeSet, LeftOutFile } from "./git.js";
 import type { Usage } from "./types.js";
 
 export interface CommandTrace {
@@ -32,6 +32,8 @@ export interface ReportInput {
   kap: Record<string, unknown>;
   changes: ChangeSet;
   commit: string | null;
+  /** Changed files kept out of the commit: too large for git, or holding a credential. */
+  left_out?: LeftOutFile[];
   commands: CommandTrace[];
   decisions: DecisionTrace[];
 }
@@ -134,6 +136,9 @@ export function renderText(report: Report): string {
     lines.push(`compacted: ${report.compactions} time(s)`);
   }
   if (report.commit) lines.push(`commit: ${report.commit}`);
+  for (const file of report.left_out ?? []) {
+    lines.push(`not committed: ${file.path} (${file.reason})`);
+  }
   lines.push(`session: ${report.session}`);
   if (report.kap.active === true) {
     lines.push(`kap: ${String(report.kap.attempt ?? "recorded")}`);
@@ -151,6 +156,9 @@ export function renderMarkdown(report: Report): string {
   lines.push(`- turns: ${report.turns} in ${formatDuration(report.duration_ms)}`);
   lines.push(`- workspace: \`${report.cwd}\``);
   if (report.commit) lines.push(`- commit: \`${report.commit}\``);
+  for (const file of report.left_out ?? []) {
+    lines.push(`- not committed: \`${file.path}\` (${file.reason})`);
+  }
   lines.push(`- session: \`${report.session}\``);
   if (report.kap.active === true) {
     lines.push(`- kap attempt: \`${String(report.kap.attempt ?? "")}\``);

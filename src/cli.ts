@@ -8,7 +8,7 @@ import { runAgent } from "./agent.js";
 import { parseCliArgs, USAGE, type CliOptions } from "./args.js";
 import { resolveConfig } from "./config.js";
 import { ConfigError, MaxTurnsError, ProviderError, TimeoutError, UsageError } from "./errors.js";
-import { captureBaseline, collectChanges, commitAll, readHead } from "./git.js";
+import { captureBaseline, collectChanges, commitAll, readHead, type LeftOutFile } from "./git.js";
 import { runConfigCommand } from "./config-cli.js";
 import { runDoctorCommand } from "./doctor.js";
 import { attachKap } from "./kap-attach.js";
@@ -205,8 +205,11 @@ export async function main(argv: readonly string[]): Promise<number> {
 
       const changes = collectChanges(cwd, result.changed, baseline, baseCommit);
       let commit: string | null = null;
+      let leftOut: LeftOutFile[] = [];
       if (options.commit && kap.state.active) {
         const committed = commitAll(cwd, `cocseak: ${title}`);
+        leftOut = committed.leftOut;
+        for (const file of leftOut) say(`git: not committed ${file.path} (${file.reason})`);
         if (committed.committed) {
           commit = committed.hash;
           say(`git: committed ${committed.hash} on ${kap.state.attempt}`);
@@ -232,6 +235,7 @@ export async function main(argv: readonly string[]): Promise<number> {
         },
         changes,
         commit,
+        ...(leftOut.length > 0 ? { left_out: leftOut } : {}),
         commands: result.commands,
         decisions: result.decisions,
       });

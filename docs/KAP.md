@@ -66,13 +66,25 @@ without a settings file:
 | Condition | Result |
 | --- | --- |
 | inside `.kap/worktrees/<attempt>`, `kap` on `PATH` | records into that attempt |
-| `.kap/` repo, no attempt, clean tree | runs `kap attempt start <title> --task <task>` and records in the new worktree |
-| `.kap/` repo, uncommitted changes | runs in place, records nothing, explains why (`--kap on` makes it an error) |
-| no `.kap/`, or no `kap` binary | quiet no-op (`--kap on` makes it an error) |
+| `.kap/` repo, no attempt, no tracked changes | runs `kap attempt start <title> --task <task>` and records in the new worktree; untracked files in the checkout are counted in a note, since the worktree does not have them |
+| `.kap/` repo, uncommitted tracked changes | refuses with exit 2; `--kap off` runs unrecorded on purpose |
+| git repo with history, no `.kap/` | runs unrecorded and says how to opt in; never runs `kap init` or commits there (`--kap on` makes it an error) |
+| bare directory or repo without commits | sets up git, a baseline commit, and `kap init` (unless `--no-init`) |
+| no `kap` binary | quiet no-op (`--kap on` makes it an error) |
 
-Starting an attempt is deliberately skipped for a dirty tree: `kap attempt start` branches from
-`HEAD`, so uncommitted work would not be in the worktree. Recording something the agent could not
-see would be worse than not recording.
+A dirty tree is refused rather than worked around: `kap attempt start` branches from `HEAD`, so
+uncommitted work would not be in the worktree, and running in place would write unrecorded changes
+into the very repository KAP accounts for. Untracked files alone do not block an attempt.
+
+The commit at the end of a run leaves out any changed file over 10 MiB and any file holding
+something shaped like a credential (the same shapes KAP redacts). They stay uncommitted in the
+worktree and are listed as `not committed` in the report and `left_out` in the JSON. KAP keeps
+secrets out of its own store, but a git commit is outside its reach and travels with every push.
+
+When the repository has a `.kap/worktree` file, `kap attempt start` links shared paths and runs
+setup (for example `uv sync`) before cocseak starts; cocseak waits up to 15 minutes for it. If setup
+fails, the run stops with a configuration error instead of working in a broken environment. Links
+into the main checkout are never committed (`links outside the worktree`).
 
 Hook failures never break the run. They are counted in the `kap.failures` field of the JSON result
 and printed when `COCSEAK_DEBUG=1` is set. KAP itself behaves the same way: a hook that cannot be

@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { lookupApiKey, lookupBaseUrl, lookupModel, modelsUrl } from "./config.js";
 import { ConfigError } from "./errors.js";
 import { findAttempt, findKapBinary, findKapRoot } from "./kap.js";
-import { isCleanWorktree } from "./git.js";
+import { gitTopLevel, hasTrackedChanges, readHead } from "./git.js";
 import { loadSettings, maskKey } from "./settings.js";
 
 export interface DoctorOptions {
@@ -121,9 +121,13 @@ function describeKap(cwd: string): string {
   if (attempt) return `${label} — attempt ${attempt} (recording)`;
 
   const root = findKapRoot(cwd);
-  if (!root) return `${label} — no KAP repository here; a run will create one`;
-  if (!isCleanWorktree(root)) {
-    return `${label} — uncommitted changes; a run will not start an attempt (commit or stash first)`;
+  if (!root) {
+    return gitTopLevel(cwd) && readHead(cwd)
+      ? `${label} — no .kap in this repository; runs are not recorded (\`kap init\` to opt in)`
+      : `${label} — no repository history yet; a run will set up git and KAP`;
+  }
+  if (hasTrackedChanges(root)) {
+    return `${label} — uncommitted tracked changes; a run will refuse (commit or stash, or --kap off)`;
   }
   return `${label} — no attempt yet; a run will start one automatically`;
 }

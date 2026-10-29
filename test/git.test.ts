@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { existsSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { captureBaseline, collectChanges, commitAll, readHead } from "../src/git.js";
+import { captureBaseline, collectChanges, commitAll, MAX_COMMIT_FILE_BYTES, readHead } from "../src/git.js";
 import { tempDir } from "./helpers.js";
 
 function git(cwd: string, ...args: string[]): void {
@@ -180,5 +180,63 @@ test("still includes untracked files when comparing to the base", () => {
     assert.equal(changes.files.find((file) => file.path === "new.txt")?.added, 2);
   } finally {
     dir.cleanup();
+  }
+});
+
+test("leaves oversized files and files holding a credential out of the commit", () => {
+  const dir = tempDir();
+  try {
+    git(dir.path, "init", "-q");
+    writeFileSync(join(dir.path, "a.txt"), "one\n");
+    git(dir.path, "add", ".");
+    git(dir.path, "commit", "-qm", "init");
+
+    writeFileSync(join(dir.path, "a.txt"), "one\ntwo\n");
+    writeFileSync(join(dir.path, "feats [v1].npy"), Buffer.alloc(MAX_COMMIT_FILE_BYTES + 1));
+    writeFileSync(join(dir.path, "pod.env.sh"), "export RUNPOD_API_KEY=Zq81mXk20Lp3nV7cQ0w9\n");
+
+    const result = commitAll(dir.path, "cocseak: filtered");
+    assert.equal(result.committed, true);
+    assert.deepEqual(
+      result.leftOut.map((file) => [file.path, file.reason]).sort(),
+      [
+        ["feats [v1].npy", "too large"],
+        ["pod.env.sh", "holds a credential"],
+      ],
+    );
+
+    const files = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+      cwd: dir.path,
+      encoding: "utf8",
+    });
+    assert.equal(files.trim(), "a.txt");
+    assert.ok(existsSync(join(dir.path, "pod.env.sh")), "left-out files stay in the worktree");
+  } finally {
+    dir.cleanup();
+  }
+});
+
+test("never commits a link that points out of the worktree", () => {
+  const dir = tempDir();
+  const shared = tempDir();
+  try {
+    git(dir.path, "init", "-q");
+    writeFileSync(join(dir.path, "a.txt"), "one\n");
+    git(dir.path, "add", ".");
+    git(dir.path, "commit", "-qm", "init");
+    writeFileSync(join(shared.path, "train.jsonl"), "{}\n");
+    symlinkSync(shared.path, join(dir.path, "data"));
+    writeFileSync(join(dir.path, "b.txt"), "two\n");
+
+    const result = commitAll(dir.path, "cocseak: with a link");
+    assert.deepEqual(result.leftOut, [{ path: "data", reason: "links outside the worktree" }]);
+    const files = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+      cwd: dir.path,
+      encoding: "utf8",
+    });
+    assert.deepEqual(files.trim().split("\n"), ["a.txt", "b.txt"]);
+  } finally {
+    dir.cleanup();
+    shared.cleanup();
   }
 });

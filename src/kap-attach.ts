@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import { ConfigError } from "./errors.js";
-import { isCleanWorktree } from "./git.js";
+import { countUntracked, gitTopLevel, hasTrackedChanges } from "./git.js";
 import { findAttempt, findKapBinary, findKapRoot, KapAdapter, type KapMode } from "./kap.js";
 
 export interface CreatedAttempt {
@@ -34,7 +34,13 @@ export interface AttachedKap {
  *
  * A bare directory is not a place a coding agent should rewrite files: with `init` (the default),
  * cocseak makes it a git repository, commits the current state as a baseline, runs `kap init`, and
- * only then starts the attempt. `--no-init` turns that into an error instead.
+ * only then starts the attempt. `--no-init` turns that into an error instead. A repository that
+ * already has history is someone's project: cocseak never runs `kap init` or commits there on its
+ * own, it says how to opt in and runs unrecorded.
+ *
+ * Inside a KAP repository a run is recorded or it does not happen. Uncommitted tracked changes
+ * would be missing from a new attempt's worktree, and working beside them in the main checkout
+ * would write unrecorded changes into the very repository KAP is meant to account for.
  */
 export function attachKap(options: {
   cwd: string;
@@ -74,6 +80,20 @@ export function attachKap(options: {
   const probe = safeRealpath(cwd);
   let root = findKapRoot(probe);
   if (!root) {
+    const existing = gitTopLevel(probe);
+    if (existing && hasCommits(existing)) {
+      const reason =
+        `this repository has no .kap, so the run is not recorded; ` +
+        `run \`kap init\` in ${existing} and commit .gitignore to record runs`;
+      if (mode === "on") throw new ConfigError(`--kap on, but ${reason}.`);
+      return {
+        workspace: cwd,
+        adapter: KapAdapter.inactive(cwd, runId, reason, debug),
+        created: null,
+        note: reason,
+        notes,
+      };
+    }
     if (!options.init) {
       const reason = "no .kap repository here, and --no-init is set";
       if (mode === "on") throw new ConfigError(`--kap on, but ${reason}.`);
@@ -117,20 +137,20 @@ export function attachKap(options: {
     };
   }
 
-  if (!isCleanWorktree(root)) {
-    const note =
-      "the repository has uncommitted changes, so no attempt was started " +
-      "(its worktree would branch from HEAD and miss them). Commit or stash, or run " +
-      "`kap attempt start` yourself and work in its worktree.";
-    if (mode === "on") throw new ConfigError(note);
-    debug(`kap: ${note}`);
-    return {
-      workspace: cwd,
-      adapter: KapAdapter.inactive(cwd, runId, note, debug),
-      created: null,
-      note,
-      notes,
-    };
+  if (hasTrackedChanges(root)) {
+    throw new ConfigError(
+      "the KAP repository has uncommitted changes to tracked files, so no attempt can start " +
+        "(its worktree would branch from HEAD and miss them), and cocseak will not edit the main " +
+        "checkout unrecorded. Commit or stash, run `kap attempt start` yourself and pass its " +
+        "worktree as --cwd, or pass --kap off to run unrecorded on purpose.",
+    );
+  }
+
+  const untracked = countUntracked(root);
+  if (untracked > 0) {
+    notes.push(
+      `${untracked} untracked file(s) in the main checkout are not in the attempt's worktree`,
+    );
   }
 
   const created = startAttempt(binary, root, options.title, options.task);
@@ -193,11 +213,6 @@ function bootstrap(binary: string, cwd: string, notes: string[]): string {
   return root;
 }
 
-function gitTopLevel(cwd: string): string | null {
-  const top = run(cwd, ["rev-parse", "--show-toplevel"])?.trim();
-  return top ? top : null;
-}
-
 function safeRealpath(path: string): string {
   try {
     return realpathSync(path);
@@ -242,13 +257,19 @@ function startAttempt(binary: string, root: string, title: string, task: string)
     output = execFileSync(binary, ["attempt", "start", label, "--task", task], {
       cwd: root,
       encoding: "utf8",
-      timeout: 60_000,
+      // `.kap/worktree` may install an environment; that takes minutes, not seconds.
+      timeout: ATTEMPT_START_TIMEOUT_MS,
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: 4 * 1024 * 1024,
     });
   } catch (error) {
-    const failure = error as { stderr?: string; stdout?: string; message: string };
-    const detail = firstLine(failure.stderr || failure.stdout || failure.message);
+    const failure = error as { status?: number; stderr?: string; stdout?: string; message: string };
+    // Exit 3: the attempt exists but its setup failed. Working in it would mean working in a
+    // broken environment, and the run could not tell its own failures from the setup's.
+    const detail =
+      failure.status === 3
+        ? `the attempt was created but its .kap/worktree setup failed (see \`kap log\`)`
+        : firstLine(failure.stderr || failure.stdout || failure.message);
     throw new ConfigError(`could not start a KAP attempt: ${detail}`);
   }
 
@@ -258,6 +279,8 @@ function startAttempt(binary: string, root: string, title: string, task: string)
 
   return { attempt: findAttempt(worktree) ?? "", branch: branch ?? "", worktree };
 }
+
+const ATTEMPT_START_TIMEOUT_MS = 15 * 60_000;
 
 function hasGit(cwd: string): boolean {
   return run(cwd, ["rev-parse", "--is-inside-work-tree"])?.trim() === "true";
