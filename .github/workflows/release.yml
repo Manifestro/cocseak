@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+      - name: Check the tag matches the version
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME, package $version"; exit 1; }
+
+      - name: Pack
+        run: |
+          npm pack
+          mv "cocseak-$(node -p 'require("./package.json").version').tgz" cocseak.tgz
+          sha256sum cocseak.tgz > cocseak.tgz.sha256
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            cocseak.tgz
+            cocseak.tgz.sha256
+            install.sh
+          generate_release_notes: true
+          fail_on_unmatched_files: true

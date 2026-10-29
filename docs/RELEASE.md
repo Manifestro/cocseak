@@ -70,3 +70,19 @@ Bump `package.json` and `src/version.ts` together; `cocseak --version` must matc
 - A KAP repository with uncommitted tracked changes is refused; commit or stash first, or `--kap off`.
 - `glob` and `grep` skip symlinks, so KAP's shared links (`data/`) are not searched; `read_file`
   reads through them and `bash` sees them, but nothing writes through them.
+
+## 6. Tag
+
+```sh
+git tag -a v<version> -m "cocseak v<version>"
+git push origin main v<version>
+```
+
+The tag runs `.github/workflows/release.yml`: it tests, builds, packs `cocseak.tgz` with its
+`.sha256`, and attaches both plus `install.sh` to a GitHub release. The tag must match
+`package.json`, or the workflow stops. Then check the installer against the release:
+
+```sh
+COCSEAK_PREFIX=/tmp/rel-install sh install.sh && /tmp/rel-install/bin/cocseak --version
+```
+

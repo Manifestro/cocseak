@@ -119,6 +119,17 @@ Created NOTES.md ... (the agent's report)
 Requires Node 22 or newer. macOS and Linux; the agent's shell is `sh`.
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/Manifestro/cocseak/main/install.sh | sh
+```
+
+The script downloads the latest [release](https://github.com/Manifestro/cocseak/releases), checks
+its SHA-256, and installs it with npm into `~/.local` (the command lands in `~/.local/bin`).
+`COCSEAK_VERSION=0.1.1` pins a release and `COCSEAK_PREFIX=/usr/local` installs elsewhere. Running it
+again upgrades in place.
+
+From source:
+
+```sh
 git clone https://github.com/Manifestro/cocseak.git
 cd cocseak
 pnpm install

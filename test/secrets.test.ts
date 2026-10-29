@@ -31,7 +31,7 @@ test("leaves ordinary code and training logs alone", () => {
     "commit 6ba810789f2a1c3d4e5f60718293a4b5c6d7e8f9",
     "blake3:bd34aa745853dc530f70cfbb7a83276aa72f1189ebdf8c36216cd1f47d0c6d41",
     "c0062-f09-af_nova-en_GB-jenny_dioco-medium",
-    "/Users/karl4th/Documents/manifestro/research/dauys/checkpoints/E3",
+    "/home/me/project/checkpoints/E3",
     "client = AsyncOpenAI(base_url=args.base_url, api_key=args.api_key)",
     "tokenizer.pad_token = tokenizer.eos_token",
     'echo "password=$GH_TOKEN"',
