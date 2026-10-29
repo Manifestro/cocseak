@@ -30,6 +30,7 @@ export interface ReportInput {
   session: string;
   kap: Record<string, unknown>;
   changes: ChangeSet;
+  commit: string | null;
   commands: CommandTrace[];
   decisions: DecisionTrace[];
 }
@@ -119,6 +120,7 @@ export function renderText(report: Report): string {
   if (report.decisions.length > 0) {
     lines.push(`decisions: ${report.decisions.length}`);
   }
+  if (report.commit) lines.push(`commit: ${report.commit}`);
   lines.push(`session: ${report.session}`);
   if (report.kap.active === true) {
     lines.push(`kap: ${String(report.kap.attempt ?? "recorded")}`);
@@ -135,6 +137,7 @@ export function renderMarkdown(report: Report): string {
   lines.push(`- model: \`${report.model}\``);
   lines.push(`- turns: ${report.turns} in ${formatDuration(report.durationMs)}`);
   lines.push(`- workspace: \`${report.cwd}\``);
+  if (report.commit) lines.push(`- commit: \`${report.commit}\``);
   lines.push(`- session: \`${report.session}\``);
   if (report.kap.active === true) {
     lines.push(`- kap attempt: \`${String(report.kap.attempt ?? "")}\``);

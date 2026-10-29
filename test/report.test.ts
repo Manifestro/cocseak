@@ -14,6 +14,7 @@ const report = buildReport({
   durationMs: 12_400,
   session: "/home/me/.cocseak/sessions/repo-1234/run-1/session.v1.jsonl",
   kap: { active: true, attempt: "attempt-7" },
+  commit: "abc1234",
   changes: {
     files: [{ path: "src/lexer.ts", status: "modified", added: 10, removed: 2 }],
     diff_stat: "1 file(s) changed, 10 insertions(+), 2 deletions(-)",
@@ -28,6 +29,7 @@ test("the text report is compact and starts with the facts", () => {
   assert.match(text, /^changed: 1 file\(s\) \(\+10 -2\) · src\/lexer\.ts$/m);
   assert.match(text, /^ran: pnpm test → 0$/m);
   assert.match(text, /^decisions: 1$/m);
+  assert.match(text, /^commit: abc1234$/m);
   assert.match(text, /^kap: attempt-7$/m);
   assert.match(text, /Fixed the lexer\.\nRan the tests\.\n$/);
 });

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -104,6 +104,53 @@ test("bash reports stdout, stderr, and the exit code", async () => {
     assert.match(bad.output, /boom/);
     assert.match(bad.output, /\[exit code: 3\]/);
     assert.equal(bad.hook?.failed, true);
+  } finally {
+    dir.cleanup();
+  }
+});
+
+test("refuses a symlink that points outside the workspace", async () => {
+  const dir = tempDir();
+  const outside = tempDir();
+  try {
+    writeFileSync(join(outside.path, "secret.txt"), "secret\n");
+    symlinkSync(outside.path, join(dir.path, "link"), "dir");
+
+    await assert.rejects(
+      () => readFileTool.run({ path: "link/secret.txt" }, context(dir.path)),
+      /outside the workspace/,
+    );
+    await assert.rejects(
+      () => writeFileTool.run({ path: "link/new.txt", content: "x" }, context(dir.path)),
+      /outside the workspace/,
+    );
+  } finally {
+    dir.cleanup();
+    outside.cleanup();
+  }
+});
+
+test("kills a command at its timeout", async () => {
+  const dir = tempDir();
+  try {
+    const started = Date.now();
+    const result = await bashTool.run({ command: "sleep 5", timeout_ms: 1000 }, context(dir.path));
+    assert.equal(result.isError, true);
+    assert.match(result.output, /killed after 1000 ms/);
+    assert.ok(Date.now() - started < 4000);
+  } finally {
+    dir.cleanup();
+  }
+});
+
+test("truncates huge output but keeps the end", async () => {
+  const dir = tempDir();
+  try {
+    const result = await bashTool.run({ command: "seq 1 20000" }, context(dir.path));
+    assert.equal(result.isError, false);
+    assert.ok(result.output.length < 40_000);
+    assert.match(result.output, /truncated/);
+    assert.match(result.output, /20000/);
   } finally {
     dir.cleanup();
   }

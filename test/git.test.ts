@@ -4,7 +4,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { captureBaseline, collectChanges } from "../src/git.js";
+import { captureBaseline, collectChanges, commitAll } from "../src/git.js";
 import { tempDir } from "./helpers.js";
 
 function git(cwd: string, ...args: string[]): void {
@@ -85,6 +85,29 @@ test("ignores files that were already dirty when the run started", () => {
     const after = collectChanges(dir.path, [], baseline).files;
     assert.equal(after.length, 1);
     assert.equal(after[0]?.path, "a.txt");
+  } finally {
+    dir.cleanup();
+  }
+});
+
+test("commits the worktree only when something changed", () => {
+  const dir = tempDir();
+  try {
+    git(dir.path, "init", "-q");
+    writeFileSync(join(dir.path, "a.txt"), "one\n");
+    git(dir.path, "add", ".");
+    git(dir.path, "commit", "-qm", "init");
+
+    assert.deepEqual(commitAll(dir.path, "nothing").committed, false);
+
+    writeFileSync(join(dir.path, "a.txt"), "one\ntwo\n");
+    const result = commitAll(dir.path, "cocseak: test");
+    assert.equal(result.committed, true);
+    assert.ok(result.hash);
+
+    const log = execFileSync("git", ["log", "--oneline"], { cwd: dir.path, encoding: "utf8" });
+    assert.match(log, /cocseak: test/);
+    assert.equal(collectChanges(dir.path).files.length, 0);
   } finally {
     dir.cleanup();
   }

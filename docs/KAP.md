@@ -16,6 +16,7 @@ already knows its own lifecycle, so it calls the hooks itself.
 | a tool fails | `kap hook post-tool-use-failure` | Records the failure. No exit code is invented. |
 | `record_decision` | `kap decision add` | Records the summary, rationale, and rejected alternatives. |
 | run ends | `kap hook stop` | Finishes the run, snapshots changed files as evidence. |
+| run ends (KAP active) | `git commit` in the worktree | Puts the result on the attempt branch, so review and merge can carry it. `--no-commit` skips it. |
 
 Everything else KAP does — attempts, worktrees, review, merge, sync — is untouched by cocseak.
 
@@ -113,6 +114,9 @@ A run that writes a file adds a `file_change` event and observed evidence:
   the session log and the tool output; only the KAP event loses it.
 - **Hooks are synchronous.** Each tool call waits for `kap` to finish writing (single-digit
   milliseconds, capped at 5 s). A hung `kap` delays the run but cannot fail it.
+- **The final commit includes everything in the worktree.** In an attempt cocseak commits all
+  changes, not only the files it touched, because a command may have edited anything. The attempt
+  branch is isolated, so this is a proposal rather than a change to the user's branch.
 - **`kap hook stop` snapshots the worktree.** That is what makes shell edits evidence, but on a
   large tree it is the most expensive hook in the run.
 

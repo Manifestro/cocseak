@@ -20,6 +20,7 @@ export interface CliOptions {
   reportPath: string | undefined;
   kap: "auto" | "on" | "off";
   init: boolean;
+  commit: boolean;
   briefing: boolean;
   help: boolean;
   version: boolean;
@@ -51,6 +52,7 @@ Options:
   --quiet              Do not print progress to stderr.
   --kap <mode>         KAP adapter: auto | on | off. Default: auto.
   --no-init            Do not create git or .kap automatically; fail instead.
+  --no-commit          Do not commit the run's changes in the attempt worktree.
   --no-briefing        Do not ask KAP for the attempt briefing at startup.
   --help, -h           Show this help.
   --version, -v        Print the version.
@@ -97,6 +99,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
         report: { type: "string" },
         kap: { type: "string" },
         "no-init": { type: "boolean" },
+        "no-commit": { type: "boolean" },
         "no-briefing": { type: "boolean" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
@@ -133,6 +136,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     reportPath: values.report,
     kap,
     init: values["no-init"] !== true,
+    commit: values["no-commit"] !== true,
     briefing: values["no-briefing"] !== true,
     help: values.help === true,
     version: values.version === true,

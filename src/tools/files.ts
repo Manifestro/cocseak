@@ -1,3 +1,4 @@
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
@@ -6,14 +7,37 @@ import { ToolInputError, truncateForModel } from "./types.js";
 
 const READ_LIMIT_LINES = 2000;
 
-/** Resolve a tool path and refuse anything outside the workspace. */
+/** Resolve a tool path and refuse anything outside the workspace, symlinks included. */
 export function resolveWorkspacePath(cwd: string, input: string): string {
   const absolute = isAbsolute(input) ? resolve(input) : resolve(cwd, input);
   const rel = relative(cwd, absolute);
-  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+  if (escapes(rel)) {
     throw new ToolInputError(`path "${input}" is outside the workspace (${cwd})`);
   }
+
+  // A symlink inside the workspace can still point out of it, so compare real paths.
+  const root = safeRealpath(cwd);
+  const probe = existsSync(absolute) ? absolute : dirname(absolute);
+  if (existsSync(probe)) {
+    const real = safeRealpath(probe);
+    const relReal = relative(root, real);
+    if (escapes(relReal)) {
+      throw new ToolInputError(`path "${input}" resolves outside the workspace (${cwd})`);
+    }
+  }
   return absolute;
+}
+
+function escapes(rel: string): boolean {
+  return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+}
+
+function safeRealpath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
 }
 
 function displayPath(cwd: string, absolute: string): string {

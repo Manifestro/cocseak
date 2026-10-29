@@ -116,7 +116,7 @@ Created NOTES.md ... (the agent's report)
 
 ## Install
 
-Requires Node 22 or newer.
+Requires Node 22 or newer. macOS and Linux; the agent's shell is `sh`.
 
 ```sh
 git clone https://github.com/Manifestro/cocseak.git
@@ -189,6 +189,7 @@ cocseak doctor [--offline]
 | `--quiet` | No progress on stderr. |
 | `--kap <auto\|on\|off>` | KAP adapter. `auto` records in an attempt and starts one in a clean KAP repo; `on` requires KAP; `off` disables. Default: auto. |
 | `--no-init` | Never create a git repository or `.kap` automatically; if they are missing, run unrecorded instead. |
+| `--no-commit` | Do not commit the run's changes in the attempt worktree. |
 | `--no-briefing` | Skip the KAP attempt briefing. |
 | `--version`, `--help` | The usual. |
 
@@ -228,6 +229,7 @@ The product of a run is a report, not a transcript. `--json` prints it as one ob
     "files": [{ "path": "src/cli.ts", "status": "modified", "added": 12, "removed": 3 }],
     "diff_stat": "2 file(s) changed, 24 insertions(+), 9 deletions(-)"
   },
+  "commit": "587aaf3",
   "commands": [{ "command": "pnpm test", "exit_code": 0, "duration_ms": 4200 }],
   "decisions": [{ "summary": "...", "rationale": "...", "alternatives": "..." }],
   "session": "/Users/me/.cocseak/sessions/repo-1a2b3c4d/run-.../session.v1.jsonl",
@@ -300,13 +302,18 @@ changed: 1 file(s) (+12 -3) · src/lexer.ts
 ...
 ```
 
-The report gains `kap.created`, `kap.branch`, and `kap.worktree`. The work happens on a branch in
-`.kap/worktrees/`, not in your checkout, so review and merge stay deliberate:
+The report gains `kap.created`, `kap.branch`, `kap.worktree`, and `commit`. The work happens on a
+branch in `.kap/worktrees/`, not in your checkout, so review and merge stay deliberate:
 
 ```sh
-kap review attempt-01m64…
+kap review attempt-01m64… --approve
 kap merge attempt-01m64…
 ```
+
+When the run finishes, cocseak commits the worktree into the attempt branch (`cocseak: <title>`),
+so the review has a commit to pin and the merge actually carries the files. Broken code is fine
+there — it is a proposal on an isolated branch, never your main tree. `--no-commit` leaves the
+changes uncommitted, in which case `kap merge` will move nothing until you commit yourself.
 
 If you are already inside an attempt worktree, cocseak records into it instead of starting another
 one. `kap log` shows the run as it happens:

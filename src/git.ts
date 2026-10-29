@@ -147,6 +147,29 @@ export function isCleanWorktree(cwd: string): boolean {
   return status !== null && status.trim() === "";
 }
 
+export interface CommitResult {
+  committed: boolean;
+  hash: string | null;
+  path: string;
+}
+
+/** Commit everything currently in the worktree, if anything is untracked or modified. */
+export function commitAll(cwd: string, message: string): CommitResult {
+  if (!isGitWorktree(cwd)) return { committed: false, hash: null, path: cwd };
+
+  git(cwd, ["add", "-A"]);
+  // `git diff --quiet` exits 1 when something is staged, and `git` turns that into null.
+  const dirty = git(cwd, ["diff", "--cached", "--quiet"]) === null;
+  if (!dirty) return { committed: false, hash: null, path: cwd };
+
+  if (git(cwd, ["commit", "-q", "-m", message]) === null) {
+    return { committed: false, hash: null, path: cwd };
+  }
+
+  const hash = git(cwd, ["rev-parse", "--short", "HEAD"])?.trim() ?? null;
+  return { committed: true, hash, path: cwd };
+}
+
 export function isGitWorktree(cwd: string): boolean {
   const result = git(cwd, ["rev-parse", "--is-inside-work-tree"]);
   return result?.trim() === "true";

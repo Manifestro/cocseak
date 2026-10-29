@@ -8,7 +8,7 @@ import { runAgent } from "./agent.js";
 import { parseCliArgs, USAGE, type CliOptions } from "./args.js";
 import { resolveConfig } from "./config.js";
 import { ConfigError, MaxTurnsError, ProviderError, TimeoutError, UsageError } from "./errors.js";
-import { captureBaseline, collectChanges } from "./git.js";
+import { captureBaseline, collectChanges, commitAll } from "./git.js";
 import { runConfigCommand } from "./config-cli.js";
 import { runDoctorCommand } from "./doctor.js";
 import { attachKap } from "./kap-attach.js";
@@ -194,6 +194,16 @@ export async function main(argv: readonly string[]): Promise<number> {
 
       await session.flush();
 
+      const changes = collectChanges(cwd, result.changed, baseline);
+      let commit: string | null = null;
+      if (options.commit && kap.state.active) {
+        const committed = commitAll(cwd, `cocseak: ${title}`);
+        if (committed.committed) {
+          commit = committed.hash;
+          say(`git: committed ${committed.hash} on ${kap.state.attempt}`);
+        }
+      }
+
       const report = buildReport({
         title,
         task,
@@ -210,7 +220,8 @@ export async function main(argv: readonly string[]): Promise<number> {
             ? { created: true, branch: attached.created.branch, worktree: attached.created.worktree }
             : {}),
         },
-        changes: collectChanges(cwd, result.changed, baseline),
+        changes,
+        commit,
         commands: result.commands,
         decisions: result.decisions,
       });
