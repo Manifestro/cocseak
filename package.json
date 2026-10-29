@@ -1,0 +1,45 @@
+{
+  "name": "cocseak",
+  "version": "0.0.0",
+  "description": "One-shot coding harness for OpenAI-compatible models, built to be driven by a router",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "cocseak": "./bin/cocseak.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "coding-agent",
+    "harness",
+    "openai-compatible",
+    "deepseek",
+    "kap",
+    "one-shot"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Manifestro/cocseak.git"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

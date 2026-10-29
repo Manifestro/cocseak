@@ -1,0 +1,11 @@
+export { main } from "./cli.js";
+export { runAgent, type AgentEvent, type AgentOptions, type AgentResult } from "./agent.js";
+export { OpenAiCompatibleProvider } from "./provider.js";
+export { KapAdapter, type HookEvent, type KapMode, type KapState } from "./kap.js";
+export { SessionLog, newRunId, type SessionEvent } from "./session.js";
+export { TOOLS, findTool, toolSchemas } from "./tools/index.js";
+export { buildSystemPrompt } from "./prompt.js";
+export { resolveConfig, type Config } from "./config.js";
+export { parseCliArgs, USAGE, type CliOptions } from "./args.js";
+export * from "./errors.js";
+export type * from "./types.js";

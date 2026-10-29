@@ -1,0 +1,92 @@
+# Recording cocseak in KAP
+
+KAP does not wrap agents and does not own their loop. It records observable work through
+*adapters*. For Claude Code the adapter is a set of hooks written into `settings.json`: KAP is
+called at four points and answers with JSON on stdout.
+
+cocseak uses the same four hooks, but there is no settings file to install. A one-shot process
+already knows its own lifecycle, so it calls the hooks itself.
+
+## Lifecycle
+
+| cocseak moment | KAP command | Effect in KAP |
+| --- | --- | --- |
+| run starts | `kap hook session-start` | Prints the attempt briefing; cocseak injects it into the system prompt. |
+| a tool finishes | `kap hook post-tool-use` | Records a `ToolEvent`. For `Write`/`Edit`, also hashes the file and records `file_change` evidence. |
+| a tool fails | `kap hook post-tool-use-failure` | Records the failure. No exit code is invented. |
+| `record_decision` | `kap decision add` | Records the summary, rationale, and rejected alternatives. |
+| run ends | `kap hook stop` | Finishes the run, snapshots changed files as evidence. |
+
+Everything else KAP does — attempts, worktrees, review, merge, sync — is untouched by cocseak.
+
+## Payload
+
+Hooks receive one JSON object on stdin. cocseak sends the fields KAP parses:
+
+```json
+{
+  "session_id": "run-20260101T101010-abc123",
+  "cwd": "/repo/.kap/worktrees/attempt-3",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": { "command": "pnpm test" },
+  "tool_response": { "stdout": "...", "stderr": "" },
+  "tool_use_id": "call_1",
+  "agent_type": "cocseak"
+}
+```
+
+`tool_use_id` matters: KAP derives the event id from the attempt, the session, and the call id, so
+a retried hook cannot double the history. `session_id` becomes the KAP run id — one cocseak process
+is exactly one run.
+
+## Tool names
+
+KAP's hook parser knows Claude Code's tool names, so cocseak uses them on the wire:
+
+| cocseak tool | `tool_name` | What KAP does |
+| --- | --- | --- |
+| `bash` | `Bash` | `command` event with stdout/stderr as content-addressed objects |
+| `read_file` | `Read` | `tool_call` event |
+| `write_file` | `Write` | `file_change` event + evidence with the file's hash |
+| `edit_file` | `Edit` | `file_change` event + evidence with the file's hash |
+| `glob` | `Glob` | `tool_call` event |
+| `grep` | `Grep` | `tool_call` event |
+| `record_decision` | — | no hook; goes through `kap decision add` |
+
+File paths are sent absolute. KAP stores them relative to the attempt worktree, and reads the file
+itself to hash it — which is why the path must point at a file that exists at hook time.
+
+## Detection
+
+| Condition | Result |
+| --- | --- |
+| `.kap/` above `--cwd`, inside `.kap/worktrees/<attempt>`, `kap` on `PATH` | recording |
+| `.kap/` above `--cwd`, but not inside a worktree | quiet no-op (`--kap on` fails loudly) |
+| no `.kap/` or no `kap` binary | quiet no-op |
+
+Hook failures never break the run. They are counted in the `kap.failures` field of the JSON result
+and printed when `COCSEAK_DEBUG=1` is set. KAP itself behaves the same way: a hook that cannot be
+recorded is logged by KAP, not shown to the agent.
+
+## Known gaps
+
+- **The run is attributed to `claude-code`.** KAP's hook path creates runs with
+  `run_for_session`, whose agent name is the `CLAUDE_CODE` constant. Per-event `agent_type` is
+  recorded, so cocseak is visible on each event, but `kap log` shows the run as Claude Code. The
+  fix belongs in KAP: an `--agent` flag on `kap hook`, or a `KAP_AGENT` environment variable.
+- **A failed `bash` has no exit code.** This is Claude Code's shape: success ⇒ exit 0, failure ⇒
+  the failure hook, which carries no exit code. cocseak knows the real code and already puts it in
+  the session log and the tool output; only the KAP event loses it.
+- **Hooks are synchronous.** Each tool call waits for `kap` to finish writing (single-digit
+  milliseconds, capped at 5 s). A hung `kap` delays the run but cannot fail it.
+- **`kap hook stop` snapshots the worktree.** That is what makes shell edits evidence, but on a
+  large tree it is the most expensive hook in the run.
+
+## Next steps on the KAP side
+
+1. `kap hook --agent cocseak` (or `KAP_AGENT`) so runs and events are attributed correctly.
+2. `kap import cocseak` for the session log, mirroring `kap import dsh` — useful when cocseak ran
+   outside an attempt, or when the log is collected by a router on another machine.
+3. `kap attempt run cocseak --task "..."`, a wrapped-mode adapter that creates the worktree and
+   launches the harness in it, so the router does not have to know about KAP at all.
