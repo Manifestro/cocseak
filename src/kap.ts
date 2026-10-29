@@ -1,4 +1,4 @@
-import { accessSync, constants, statSync } from "node:fs";
+import { accessSync, constants, realpathSync, statSync } from "node:fs";
 import { delimiter, dirname, join, sep } from "node:path";
 import { spawn } from "node:child_process";
 
@@ -65,8 +65,11 @@ export class KapAdapter {
       }, debug);
     }
 
-    const root = findKapRoot(options.cwd);
-    const attempt = findAttempt(options.cwd);
+    // KAP canonicalises paths before deciding which attempt a hook belongs to; do the same so a
+    // symlinked workspace is not silently unrecorded.
+    const probe = safeRealpath(options.cwd);
+    const root = findKapRoot(probe);
+    const attempt = findAttempt(probe);
     const binary = findKapBinary();
 
     if (!root) {
@@ -237,6 +240,14 @@ export function findAttempt(cwd: string): string | null {
     }
   }
   return null;
+}
+
+function safeRealpath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
 }
 
 export function findKapBinary(): string | null {

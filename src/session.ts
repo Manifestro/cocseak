@@ -23,7 +23,15 @@ export type SessionEvent =
       rationale: string | null;
       alternatives: string | null;
     }
-  | { type: "run_end"; time: number; ok: boolean; turns: number; usage: Usage | null; answer: string };
+  | {
+      type: "run_end";
+      time: number;
+      ok: boolean;
+      turns: number;
+      usage: Usage | null;
+      answer: string;
+      error?: string;
+    };
 
 /**
  * Append-only JSONL record of one run.

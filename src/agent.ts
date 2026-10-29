@@ -65,14 +65,20 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       turns += 1;
       options.onEvent?.({ type: "turn", turn: turns });
 
-      const turn = await provider.complete(
-        messages,
-        schemas,
-        (text) => {
-          options.onEvent?.({ type: "assistant_text", text });
-        },
-        options.signal,
-      );
+      let turn;
+      try {
+        turn = await provider.complete(
+          messages,
+          schemas,
+          (text) => {
+            options.onEvent?.({ type: "assistant_text", text });
+          },
+          options.signal,
+        );
+      } catch (error) {
+        if (options.signal.aborted) throw new TimeoutError("run timed out");
+        throw error;
+      }
 
       addUsage(usage, turn.usage);
 
@@ -119,6 +125,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       turns,
       usage,
       answer,
+      error: error instanceof Error ? error.message : String(error),
     });
     throw error;
   } finally {

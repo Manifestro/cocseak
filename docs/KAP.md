@@ -69,12 +69,37 @@ Hook failures never break the run. They are counted in the `kap.failures` field 
 and printed when `COCSEAK_DEBUG=1` is set. KAP itself behaves the same way: a hook that cannot be
 recorded is logged by KAP, not shown to the agent.
 
+## What it looks like
+
+From a run inside a real attempt, against KAP `main`:
+
+```text
+$ kap log
+17:56:37  command   echo hi from cocseak  exit 0  [subagent: cocseak]
+17:56:37  decision  use hooks to record
+              why: KAP reads them directly
+              instead of: kap import cocseak
+
+$ kap status
+  changed files: 0 since base, 0 uncommitted
+  decisions: 1
+  evidence: 0 observed, 0 reported
+```
+
+A run that writes a file adds a `file_change` event and observed evidence:
+
+```text
+17:56:51  file_change Write NOTES.md  [subagent: cocseak]
+  changed files: 0 since base, 1 uncommitted
+  evidence: 1 observed, 0 reported
+```
+
 ## Known gaps
 
-- **The run is attributed to `claude-code`.** KAP's hook path creates runs with
-  `run_for_session`, whose agent name is the `CLAUDE_CODE` constant. Per-event `agent_type` is
-  recorded, so cocseak is visible on each event, but `kap log` shows the run as Claude Code. The
-  fix belongs in KAP: an `--agent` flag on `kap hook`, or a `KAP_AGENT` environment variable.
+- **The run row is attributed to `claude-code`.** Per-event `agent_type` is recorded — that is
+  where `[subagent: cocseak]` comes from — but KAP creates the run through `run_for_session`,
+  whose agent name is the `CLAUDE_CODE` constant. Anything that reads runs rather than events
+  sees Claude Code. The fix belongs in KAP: an `--agent` flag on `kap hook`, or `KAP_AGENT`.
 - **A failed `bash` has no exit code.** This is Claude Code's shape: success ⇒ exit 0, failure ⇒
   the failure hook, which carries no exit code. cocseak knows the real code and already puts it in
   the session log and the tool output; only the KAP event loses it.

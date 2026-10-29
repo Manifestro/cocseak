@@ -139,8 +139,18 @@ On failure the same channel carries the error, so a router never has to scrape s
 ## Recording with KAP
 
 When the working directory is inside a KAP attempt worktree and `kap` is on `PATH`, cocseak reports
-to KAP the same way Claude Code does — through KAP's hooks. See [docs/KAP.md](docs/KAP.md) for the
-mapping, the payloads, and what is still missing.
+to KAP the same way Claude Code does — through KAP's four hooks. A run shows up in `kap log` as
+commands, file changes, and decisions, and file writes land as observed evidence:
+
+```text
+$ kap log
+17:56:37  command   echo hi from cocseak  exit 0  [subagent: cocseak]
+17:56:37  decision  use hooks to record
+              why: KAP reads them directly
+              instead of: kap import cocseak
+```
+
+See [docs/KAP.md](docs/KAP.md) for the mapping, the payloads, and what is still missing.
 
 Every run also writes an append-only session log under `~/.cocseak/sessions/` (override with
 `COCSEAK_HOME`). It does not depend on KAP and is meant to become the input of a future

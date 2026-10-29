@@ -24,6 +24,10 @@ export async function runShell(
   const shell = process.platform === "win32" ? "cmd" : "sh";
   const shellArgs = process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command];
 
+  if (signal.aborted) {
+    return { stdout: "", stderr: "", code: null, timedOut: true };
+  }
+
   return new Promise((resolve) => {
     const child = spawn(shell, shellArgs, {
       cwd,

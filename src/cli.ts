@@ -30,7 +30,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   try {
     options = parseCliArgs(argv);
   } catch (error) {
-    return fail(error, "usage", [], null);
+    return fail(error, "usage", null);
   }
 
   if (options.help) {
@@ -184,7 +184,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       }
       return EXIT_INTERRUPTED;
     }
-    return fail(error, classify(error), [], session, json);
+    return fail(error, classify(error), session, json);
   }
 }
 
@@ -200,7 +200,6 @@ function classify(error: unknown): FailureReport["error"]["kind"] {
 function fail(
   error: unknown,
   kind: FailureReport["error"]["kind"],
-  _argv: readonly string[],
   session: SessionLog | null,
   json = false,
 ): number {

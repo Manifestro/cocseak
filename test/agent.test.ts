@@ -111,3 +111,39 @@ test("stops at max turns", async () => {
     dir.cleanup();
   }
 });
+
+test("an already aborted signal fails fast", async () => {
+  const dir = tempDir();
+  try {
+    const provider = {
+      model: "fake-model",
+      async complete() {
+        throw new Error("should not be called");
+      },
+    } as unknown as OpenAiCompatibleProvider;
+
+    const session = new SessionLog(join(dir.path, "session"), newRunId());
+    const kap = KapAdapter.detect({ cwd: dir.path, mode: "off", runId: "run-1" });
+    const controller = new AbortController();
+    controller.abort();
+
+    await assert.rejects(
+      () =>
+        runAgent({
+          provider,
+          tools: TOOLS,
+          systemPrompt: "test",
+          task: "never",
+          cwd: dir.path,
+          title: "test",
+          maxTurns: 3,
+          signal: controller.signal,
+          session,
+          kap,
+        }),
+      /timed out/,
+    );
+  } finally {
+    dir.cleanup();
+  }
+});
