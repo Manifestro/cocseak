@@ -16,6 +16,8 @@ export interface CliOptions {
   timeoutMs: number | undefined;
   json: boolean;
   quiet: boolean;
+  answerOnly: boolean;
+  reportPath: string | undefined;
   kap: "auto" | "on" | "off";
   briefing: boolean;
   help: boolean;
@@ -42,7 +44,9 @@ Options:
   --api-key <key>      API key. Default: $COCSEAK_API_KEY or $DEEPSEEK_API_KEY.
   --max-turns <n>      Model turns before the run fails. Default: 50.
   --timeout <sec>      Wall-clock limit for the whole run. Default: 1800.
-  --json               Print one JSON object on stdout. Progress still goes to stderr.
+  --json               Print the report as one JSON object on stdout.
+  --answer-only        Print only the final answer, without the report header.
+  --report <path>      Also write the report to a file (JSON, or Markdown if the name ends .md).
   --quiet              Do not print progress to stderr.
   --kap <mode>         KAP adapter: auto | on | off. Default: auto.
   --no-briefing        Do not ask KAP for the attempt briefing at startup.
@@ -78,6 +82,8 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
         timeout: { type: "string" },
         json: { type: "boolean" },
         quiet: { type: "boolean" },
+        "answer-only": { type: "boolean" },
+        report: { type: "string" },
         kap: { type: "string" },
         "no-briefing": { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -111,6 +117,8 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     timeoutMs: parseTimeout(values.timeout),
     json: values.json === true,
     quiet: values.quiet === true,
+    answerOnly: values["answer-only"] === true,
+    reportPath: values.report,
     kap,
     briefing: values["no-briefing"] !== true,
     help: values.help === true,

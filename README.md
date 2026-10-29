@@ -19,7 +19,9 @@ process that starts, does the work, exits with a meaningful code, and prints som
 parse. That is the whole design constraint here, and it explains most of the choices below.
 
 - **No UI.** `--os` is the only mode. Without it, cocseak tells you what it is and exits.
-- **Machine-readable.** `--json` prints exactly one JSON object on stdout. Progress goes to stderr.
+- **A report, not a transcript.** The result is a compact report — status, files changed, commands
+  and their exit codes, decisions — followed by the answer. `--json` prints the same thing as one
+  object a program can parse.
 - **Documented exit codes.** Timeouts, usage errors, and "the model never finished" are distinct.
 - **One workspace.** The agent may only touch files under `--cwd`; paths that escape are refused.
 - **Nothing depends on KAP.** When [KAP](https://github.com/Manifestro/kap) is present, the run is
@@ -63,7 +65,9 @@ cocseak --os --title <title> --task-file <path> [options]
 | `--api-key <key>` | Key. Default: `$COCSEAK_API_KEY`, `$DEEPSEEK_API_KEY`. |
 | `--max-turns <n>` | Model turns before the run fails. Default: 50. |
 | `--timeout <sec>` | Wall-clock limit. Default: 1800. |
-| `--json` | One JSON object on stdout. |
+| `--json` | Print the report as one JSON object on stdout. |
+| `--answer-only` | Print only the final answer, without the report header. |
+| `--report <path>` | Also write the report to a file (JSON, or Markdown if the name ends in `.md`). |
 | `--quiet` | No progress on stderr. |
 | `--kap <auto\|on\|off>` | KAP adapter. Default: auto. |
 | `--no-briefing` | Skip the KAP attempt briefing. |
@@ -93,38 +97,63 @@ cocseak --os --task "..." \
 Tool calls run sequentially: a coding agent's actions have order, and parallel writes are a bug
 waiting to happen.
 
-## Output
+## The report
 
-Text mode prints the agent's final answer on stdout and nothing else:
+The product of a run is a report, not a transcript. By default it is a few lines of facts followed
+by the agent's answer — small enough to paste into another agent's context:
 
-```sh
+```text
 $ cocseak --os --title "lint" --task "fix lint errors"
-Fixed 3 issues: unused import in src/cli.ts, ...
-Ran: pnpm lint (exit 0)
+status: completed · 4 turns · 18.4 s · deepseek-chat
+changed: 2 file(s) (+24 -9) · src/cli.ts, src/args.ts
+ran: pnpm lint → 0 · pnpm test → 0
+decisions: 1
+session: /Users/me/.cocseak/sessions/repo-1a2b3c4d/run-20260101T101010-abc123/session.v1.jsonl
+
+Fixed 3 issues: unused import in src/cli.ts, an unreachable branch in src/args.ts, and a
+missing case in the lint config. Ran pnpm lint and pnpm test; both pass.
 ```
 
-With `--json`, stdout is a single object:
+`--answer-only` drops the header. `--report <path>` also writes the report to disk — JSON by
+default, Markdown when the name ends in `.md`. `--json` prints the report itself:
 
 ```json
 {
+  "report_version": 1,
   "ok": true,
-  "version": "0.0.0",
+  "status": "completed",
   "title": "lint",
+  "task": "fix lint errors",
   "model": "deepseek-chat",
   "cwd": "/repo",
   "answer": "Fixed 3 issues ...",
   "turns": 4,
   "usage": { "prompt_tokens": 9120, "completion_tokens": 1130, "total_tokens": 10250 },
   "duration_ms": 18422,
-  "session": "/Users/me/.cocseak/sessions/repo-1a2b3c4d/run-20260101T101010-abc123/session.v1.jsonl",
+  "changes": {
+    "files": [{ "path": "src/cli.ts", "status": "modified", "added": 12, "removed": 3 }],
+    "diff_stat": "2 file(s) changed, 24 insertions(+), 9 deletions(-)"
+  },
+  "commands": [{ "command": "pnpm test", "exit_code": 0, "duration_ms": 4200 }],
+  "decisions": [{ "summary": "...", "rationale": "...", "alternatives": "..." }],
+  "session": "/Users/me/.cocseak/sessions/repo-1a2b3c4d/run-.../session.v1.jsonl",
   "kap": { "active": true, "attempt": "attempt-3", "reason": "hooks are recorded for this attempt", "failures": 0 }
 }
 ```
 
-On failure the same channel carries the error, so a router never has to scrape stderr:
+`changes` comes from git when the workspace is a repository (untracked files included), and from
+the tool trace otherwise. Files that were already dirty when the run started are left out, so a
+nested caller sees what this run changed rather than what was lying around. On failure the same channel carries a report with `ok: false` and an
+`error.kind`, so a caller never has to scrape stderr:
 
 ```json
-{ "ok": false, "version": "0.0.0", "error": { "kind": "timeout", "message": "run timed out" }, "session": "..." }
+{
+  "report_version": 1,
+  "ok": false,
+  "status": "failed",
+  "error": { "kind": "timeout", "message": "run timed out" },
+  "session": "..."
+}
 ```
 
 | Exit code | Meaning |
@@ -135,6 +164,23 @@ On failure the same channel carries the error, so a router never has to scrape s
 | 3 | Timeout. |
 | 4 | Max turns reached. |
 | 130 | Interrupted (SIGINT/SIGTERM). |
+
+## Calling it from another agent
+
+Claude Code and Codex call cocseak as an ordinary shell command; nothing about the nested call is
+special, which is the point of one-shot mode:
+
+```sh
+cocseak --os --title "parser" --task "make the lexer accept trailing commas" --json --quiet
+```
+
+- `--json` when the caller parses the result, `--answer-only` when it only wants the text.
+- `--task -` reads the prompt from stdin, so a large prompt does not have to be quoted.
+- The exit code tells the caller whether to trust the answer: `3` and `4` mean the agent did not
+  finish the job.
+- `--report out/report.md` leaves an artifact next to the caller's work.
+- A nested run records itself in KAP under its own session id, next to whatever the outer agent
+  recorded for the same worktree.
 
 ## Recording with KAP
 

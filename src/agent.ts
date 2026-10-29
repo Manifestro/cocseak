@@ -1,8 +1,11 @@
+import { relative } from "node:path";
+
 import { MaxTurnsError, TimeoutError } from "./errors.js";
 import type { KapAdapter } from "./kap.js";
 import type { OpenAiCompatibleProvider } from "./provider.js";
 import type { SessionLog } from "./session.js";
 import type { ChatMessage, ToolCall, ToolSchema, Usage } from "./types.js";
+import type { ChangeTrace, CommandTrace, DecisionTrace } from "./report.js";
 import type { Tool, ToolResult } from "./tools/types.js";
 import { errorResult } from "./tools/types.js";
 import { findTool, hookNameFor, toolSchemas } from "./tools/index.js";
@@ -31,6 +34,9 @@ export interface AgentResult {
   answer: string;
   turns: number;
   usage: Usage;
+  commands: CommandTrace[];
+  decisions: DecisionTrace[];
+  changed: ChangeTrace[];
 }
 
 /**
@@ -56,6 +62,11 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   });
 
   const usage: Usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  const trace: { commands: CommandTrace[]; decisions: DecisionTrace[]; changed: ChangeTrace[] } = {
+    commands: [],
+    decisions: [],
+    changed: [],
+  };
   let turns = 0;
   let answer = "";
 
@@ -95,7 +106,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       });
 
       for (const call of turn.toolCalls) {
-        const result = await executeTool(call, tools, options);
+        const result = await executeTool(call, tools, options, trace);
         messages.push({ role: "tool", tool_call_id: call.id, content: result.output });
       }
     }
@@ -116,7 +127,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       answer,
     });
 
-    return { answer, turns, usage };
+    return { answer, turns, usage, ...trace };
   } catch (error) {
     session.append({
       type: "run_end",
@@ -138,6 +149,7 @@ async function executeTool(
   call: ToolCall,
   tools: readonly Tool[],
   options: AgentOptions,
+  trace: { commands: CommandTrace[]; decisions: DecisionTrace[]; changed: ChangeTrace[] },
 ): Promise<ToolResult> {
   const { session, kap } = options;
 
@@ -150,7 +162,11 @@ async function executeTool(
   });
   options.onEvent?.({ type: "tool_start", name: call.name, args: call.arguments });
 
+  const startedAt = Date.now();
   const result = await runTool(call, tools, options);
+  const durationMs = Date.now() - startedAt;
+
+  recordTrace(trace, call, result, durationMs, options.cwd);
 
   session.append({
     type: "tool_result",
@@ -184,6 +200,30 @@ async function executeTool(
   });
 
   return result;
+}
+
+function recordTrace(
+  trace: { commands: CommandTrace[]; decisions: DecisionTrace[]; changed: ChangeTrace[] },
+  call: ToolCall,
+  result: ToolResult,
+  durationMs: number,
+  cwd: string,
+): void {
+  const hook = result.hook;
+  if (hook?.toolName === "Bash") {
+    const command = typeof hook.toolInput.command === "string" ? hook.toolInput.command : call.name;
+    trace.commands.push({ command, exit_code: result.exitCode, duration_ms: durationMs });
+  }
+  if (hook?.toolName === "Write" || hook?.toolName === "Edit") {
+    const file = typeof hook.toolInput.file_path === "string" ? hook.toolInput.file_path : "";
+    if (file !== "") {
+      trace.changed.push({
+        path: relative(cwd, file) || file,
+        action: hook.toolName === "Write" ? "write" : "edit",
+      });
+    }
+  }
+  if (result.decision) trace.decisions.push(result.decision);
 }
 
 async function runTool(

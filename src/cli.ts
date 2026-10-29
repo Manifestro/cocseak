@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { runAgent } from "./agent.js";
 import { parseCliArgs, USAGE, type CliOptions } from "./args.js";
 import { resolveConfig } from "./config.js";
 import { ConfigError, MaxTurnsError, ProviderError, TimeoutError, UsageError } from "./errors.js";
+import { captureBaseline, collectChanges } from "./git.js";
 import { KapAdapter } from "./kap.js";
 import {
   EXIT_FAILURE,
@@ -16,12 +17,18 @@ import {
   EXIT_OK,
   EXIT_TIMEOUT,
   EXIT_USAGE,
-  type FailureReport,
-  type SuccessReport,
 } from "./output.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { OpenAiCompatibleProvider } from "./provider.js";
+import {
+  buildFailureReport,
+  buildReport,
+  renderMarkdown,
+  renderText,
+  type FailureReport,
+} from "./report.js";
 import { newRunId, SessionLog } from "./session.js";
+import { resolveTask } from "./task.js";
 import { TOOLS } from "./tools/index.js";
 import { VERSION } from "./version.js";
 
@@ -30,7 +37,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   try {
     options = parseCliArgs(argv);
   } catch (error) {
-    return fail(error, "usage", null);
+    return fail(error, "usage", null, false);
   }
 
   if (options.help) {
@@ -50,6 +57,9 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   let session: SessionLog | null = null;
   let kap: KapAdapter | null = null;
+  let title = "";
+  let model = "";
+  let cwd = process.cwd();
   let interrupted = false;
 
   try {
@@ -57,12 +67,12 @@ export async function main(argv: readonly string[]): Promise<number> {
       throw new UsageError("cocseak has no interactive mode: pass --os and a --task");
     }
 
-    const cwd = resolve(options.cwd ?? process.cwd());
+    cwd = resolve(options.cwd ?? process.cwd());
     if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
       throw new UsageError(`--cwd does not exist or is not a directory: ${cwd}`);
     }
 
-    const task = readTask(options);
+    const task = resolveTask(options, readStdinIfRequested(options));
     if (task.trim() === "") throw new UsageError("the task is empty");
 
     const config = resolveConfig({
@@ -73,8 +83,9 @@ export async function main(argv: readonly string[]): Promise<number> {
       timeoutMs: options.timeoutMs,
       briefing: options.briefing,
     });
+    model = config.model;
 
-    const title = options.title ?? basename(cwd);
+    title = options.title ?? basename(cwd);
     const runId = newRunId();
     session = new SessionLog(sessionDirectory(cwd, runId), runId);
 
@@ -104,6 +115,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       kapAttempt: kap.state.attempt,
       toolNames: TOOLS.map((tool) => tool.name),
     });
+
+    const baseline = captureBaseline(cwd);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -144,25 +157,28 @@ export async function main(argv: readonly string[]): Promise<number> {
       });
 
       await session.flush();
-      const report: SuccessReport = {
-        ok: true,
-        version: VERSION,
+
+      const report = buildReport({
         title,
+        task,
         model: config.model,
         cwd,
         answer: result.answer,
         turns: result.turns,
         usage: result.usage,
-        duration_ms: Date.now() - startedAt,
+        durationMs: Date.now() - startedAt,
         session: session.path,
         kap: kap.describe(),
-      };
+        changes: collectChanges(cwd, result.changed, baseline),
+        commands: result.commands,
+        decisions: result.decisions,
+      });
 
-      if (json) {
-        process.stdout.write(`${JSON.stringify(report)}\n`);
-      } else {
-        process.stdout.write(`${result.answer}\n`);
-      }
+      if (options.reportPath !== undefined) writeReport(options.reportPath, report);
+      if (json) process.stdout.write(`${JSON.stringify(report)}\n`);
+      else if (options.answerOnly) process.stdout.write(`${report.answer}\n`);
+      else process.stdout.write(renderText(report));
+
       return EXIT_OK;
     } finally {
       clearTimeout(timer);
@@ -172,19 +188,31 @@ export async function main(argv: readonly string[]): Promise<number> {
   } catch (error) {
     if (interrupted) {
       if (json) {
-        const report: FailureReport = {
-          ok: false,
-          version: VERSION,
-          error: { kind: "interrupted", message: "interrupted" },
+        const report: FailureReport = buildFailureReport({
+          title,
+          model,
+          cwd,
           session: session?.path ?? null,
-        };
+          kind: "interrupted",
+          message: "interrupted",
+        });
         process.stdout.write(`${JSON.stringify(report)}\n`);
       } else {
         process.stderr.write("cocseak: interrupted\n");
       }
       return EXIT_INTERRUPTED;
     }
-    return fail(error, classify(error), session, json);
+    return fail(error, classify(error), { title, model, cwd, session }, json);
+  }
+}
+
+function readStdinIfRequested(options: CliOptions): string {
+  const wantsStdin = options.task === "-" || options.taskFile === "-";
+  if (!wantsStdin) return "";
+  try {
+    return readFileSync(0, "utf8");
+  } catch {
+    return "";
   }
 }
 
@@ -197,21 +225,30 @@ function classify(error: unknown): FailureReport["error"]["kind"] {
   return "internal";
 }
 
+interface Context {
+  title: string;
+  model: string;
+  cwd: string;
+  session: SessionLog | null;
+}
+
 function fail(
   error: unknown,
   kind: FailureReport["error"]["kind"],
-  session: SessionLog | null,
-  json = false,
+  context: Context | null,
+  json: boolean,
 ): number {
   const message = error instanceof Error ? error.message : String(error);
 
   if (json) {
-    const report: FailureReport = {
-      ok: false,
-      version: VERSION,
-      error: { kind, message },
-      session: session?.path ?? null,
-    };
+    const report: FailureReport = buildFailureReport({
+      title: context?.title ?? "",
+      model: context?.model ?? "",
+      cwd: context?.cwd ?? process.cwd(),
+      session: context?.session?.path ?? null,
+      kind,
+      message,
+    });
     process.stdout.write(`${JSON.stringify(report)}\n`);
   } else if (kind === "usage") {
     process.stderr.write(`cocseak: ${message}\n\n${USAGE}`);
@@ -225,18 +262,11 @@ function fail(
   return EXIT_FAILURE;
 }
 
-function readTask(options: CliOptions): string {
-  if (options.taskFile !== undefined) {
-    try {
-      return readFileSync(resolve(options.taskFile), "utf8");
-    } catch (error) {
-      throw new UsageError(`could not read --task-file: ${(error as Error).message}`);
-    }
-  }
-  if (options.task === undefined) {
-    throw new UsageError("missing --task (or --task-file)");
-  }
-  return options.task;
+function writeReport(path: string, report: ReturnType<typeof buildReport>): void {
+  const absolute = resolve(path);
+  mkdirSync(dirname(absolute), { recursive: true });
+  const markdown = /\.(md|markdown)$/i.test(absolute);
+  writeFileSync(absolute, markdown ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`, "utf8");
 }
 
 function sessionDirectory(cwd: string, runId: string): string {
@@ -245,8 +275,7 @@ function sessionDirectory(cwd: string, runId: string): string {
     basename(cwd)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40) || "workspace";
+      .replace(/^-+|-+$/g, "") || "workspace";
   const hash = createHash("sha1").update(cwd).digest("hex").slice(0, 8);
   return join(home, "sessions", `${slug}-${hash}`, runId);
 }

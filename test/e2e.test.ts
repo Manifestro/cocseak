@@ -120,7 +120,18 @@ exit 0
 
     const child = spawn(
       process.execPath,
-      [tsxCli, join(projectRoot, "src/cli.ts"), "--os", "--title", "e2e", "--task", "say hi", "--json"],
+      [
+        tsxCli,
+        join(projectRoot, "src/cli.ts"),
+        "--os",
+        "--title",
+        "e2e",
+        "--task",
+        "say hi",
+        "--json",
+        "--report",
+        join(dir.path, "report.md"),
+      ],
       { cwd: worktree, env },
     );
 
@@ -134,17 +145,27 @@ exit 0
     assert.equal(requests, 3);
 
     const report = JSON.parse(stdout.trim()) as {
+      report_version: number;
+      status: string;
       ok: boolean;
       answer: string;
       turns: number;
       session: string;
+      commands: Array<{ command: string; exit_code: number | null }>;
+      decisions: Array<{ summary: string }>;
+      changes: { files: unknown[] };
       kap: { active: boolean; attempt: string };
     };
+    assert.equal(report.report_version, 1);
+    assert.equal(report.status, "completed");
     assert.equal(report.ok, true);
     assert.equal(report.answer, "done");
     assert.equal(report.turns, 3);
     assert.equal(report.kap.active, true);
     assert.equal(report.kap.attempt, "attempt-1");
+    assert.deepEqual(report.commands, [{ command: "echo hi", exit_code: 0, duration_ms: report.commands[0]?.duration_ms }]);
+    assert.equal(report.decisions[0]?.summary, "keep it one-shot");
+    assert.deepEqual(report.changes.files, []);
 
     assert.match(stderr, /kap: recording attempt attempt-1/);
     assert.match(stderr, /turn 1/);
@@ -156,6 +177,10 @@ exit 0
     assert.match(log, /"tool_use_id":"call_1"/);
     assert.match(log, /ARGS decision add --summary keep it one-shot/);
     assert.match(log, /ARGS hook stop/);
+
+    const markdown = readFileSync(join(dir.path, "report.md"), "utf8");
+    assert.match(markdown, /^# cocseak report: e2e$/m);
+    assert.match(markdown, /\| `echo hi` \| 0 \|/);
 
     assert.ok(existsSync(report.session), "session log was written");
     const sessionText = readFileSync(report.session, "utf8");
