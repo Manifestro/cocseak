@@ -99,6 +99,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       model: options.model,
       maxTurns: options.maxTurns,
       timeoutMs: options.timeoutMs,
+      contextTokens: options.contextTokens,
       briefing: options.briefing,
       settings: loadedSettings.settings,
     });
@@ -178,6 +179,7 @@ export async function main(argv: readonly string[]): Promise<number> {
         cwd,
         title,
         maxTurns: config.maxTurns,
+        contextTokens: config.contextTokens,
         signal: controller.signal,
         session,
         kap,
@@ -189,6 +191,12 @@ export async function main(argv: readonly string[]): Promise<number> {
           }
           if (event.type === "tool_end" && event.isError) {
             process.stderr.write(`  ✗ ${oneliner(event.output, 300)}\n`);
+          }
+          if (event.type === "compact") {
+            const how = event.summarized ? "summarized" : "trimmed";
+            process.stderr.write(
+              `\ncontext: ${event.before} → ${event.after} tokens (${how})\n`,
+            );
           }
         },
       });
@@ -213,6 +221,7 @@ export async function main(argv: readonly string[]): Promise<number> {
         answer: result.answer,
         turns: result.turns,
         usage: result.usage,
+        compactions: result.compactions,
         duration_ms: Date.now() - startedAt,
         session: session.path,
         kap: {
@@ -305,6 +314,8 @@ function fail(
 ): number {
   const message = error instanceof Error ? error.message : String(error);
 
+  const partial = (error as { partial?: { turns: number; usage: object; compactions: number } }).partial;
+
   if (json) {
     const report: FailureReport = buildFailureReport({
       title: context?.title ?? "",
@@ -313,6 +324,7 @@ function fail(
       session: context?.session?.path ?? null,
       kind,
       message,
+      ...(partial ?? {}),
     });
     process.stdout.write(`${JSON.stringify(report)}\n`);
   } else if (kind === "usage") {

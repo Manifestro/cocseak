@@ -14,6 +14,7 @@ export interface CliOptions {
   apiKey: string | undefined;
   maxTurns: number | undefined;
   timeoutMs: number | undefined;
+  contextTokens: number | undefined;
   json: boolean;
   quiet: boolean;
   answerOnly: boolean;
@@ -46,6 +47,8 @@ Options:
   --api-key <key>      API key. Default: $COCSEAK_API_KEY or $DEEPSEEK_API_KEY.
   --max-turns <n>      Model turns before the run fails. Default: 50.
   --timeout <sec>      Wall-clock limit for the whole run. Default: 1800.
+  --context-tokens <n> Model context window. Older steps are summarized before it fills.
+                       Default: 128000.
   --json               Print the report as one JSON object on stdout.
   --answer-only        Print only the final answer, without the report header.
   --report <path>      Also write the report to a file (JSON, or Markdown if the name ends .md).
@@ -93,6 +96,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
         "api-key": { type: "string" },
         "max-turns": { type: "string" },
         timeout: { type: "string" },
+        "context-tokens": { type: "string" },
         json: { type: "boolean" },
         quiet: { type: "boolean" },
         "answer-only": { type: "boolean" },
@@ -130,6 +134,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     apiKey: values["api-key"],
     maxTurns: parsePositiveInt(values["max-turns"], "--max-turns"),
     timeoutMs: parseTimeout(values.timeout),
+    contextTokens: parsePositiveInt(values["context-tokens"], "--context-tokens"),
     json: values.json === true,
     quiet: values.quiet === true,
     answerOnly: values["answer-only"] === true,

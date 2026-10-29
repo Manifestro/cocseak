@@ -9,12 +9,14 @@ import type { ChangeTrace, CommandTrace, DecisionTrace } from "./report.js";
 import type { Tool, ToolResult } from "./tools/types.js";
 import { errorResult } from "./tools/types.js";
 import { findTool, hookNameFor, toolSchemas } from "./tools/index.js";
+import { compactMessages, compactThreshold, estimateTokens, shrinkMessages } from "./context.js";
 
 export type AgentEvent =
   | { type: "turn"; turn: number }
   | { type: "assistant_text"; text: string }
   | { type: "tool_start"; name: string; args: string }
-  | { type: "tool_end"; name: string; output: string; isError: boolean };
+  | { type: "tool_end"; name: string; output: string; isError: boolean }
+  | { type: "compact"; before: number; after: number; summarized: boolean };
 
 export interface AgentOptions {
   provider: OpenAiCompatibleProvider;
@@ -24,16 +26,24 @@ export interface AgentOptions {
   cwd: string;
   title: string;
   maxTurns: number;
+  contextTokens: number;
   signal: AbortSignal;
   session: SessionLog;
   kap: KapAdapter;
   onEvent?: (event: AgentEvent) => void;
 }
 
+export interface AgentPartial {
+  turns: number;
+  usage: Usage;
+  compactions: number;
+}
+
 export interface AgentResult {
   answer: string;
   turns: number;
   usage: Usage;
+  compactions: number;
   commands: CommandTrace[];
   decisions: DecisionTrace[];
   changed: ChangeTrace[];
@@ -67,12 +77,45 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     decisions: [],
     changed: [],
   };
+  const threshold = compactThreshold(options.contextTokens);
+  let compactions = 0;
   let turns = 0;
   let answer = "";
+  let lastSummaryTurn = -10;
+  let lastCallSignature = "";
+  let repeatedCalls = 0;
 
   try {
     while (turns < options.maxTurns) {
       if (options.signal.aborted) throw new TimeoutError("run timed out");
+
+      if (estimateTokens(messages) > threshold) {
+        const before = estimateTokens(messages);
+        const compacted = await compactMessages({
+          provider,
+          messages,
+          signal: options.signal,
+          summarize: turns - lastSummaryTurn >= 2,
+        });
+        if (compacted.summarized) lastSummaryTurn = turns;
+        messages.length = 0;
+        messages.push(...compacted.messages);
+        if (compacted.usage) addUsage(usage, compacted.usage);
+
+        // A summary can still leave a single huge tool result over the line.
+        if (estimateTokens(messages) > threshold) {
+          const shrunk = shrinkMessages(messages);
+          messages.length = 0;
+          messages.push(...shrunk);
+        }
+
+        const after = estimateTokens(messages);
+        if (after < before) {
+          compactions += 1;
+          options.onEvent?.({ type: "compact", before, after, summarized: compacted.summarized });
+        }
+      }
+
       turns += 1;
       options.onEvent?.({ type: "turn", turn: turns });
 
@@ -112,6 +155,19 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       });
 
       for (const call of turn.toolCalls) {
+        const signature = `${call.name}\u0000${call.arguments}`;
+        if (signature === lastCallSignature) {
+          repeatedCalls += 1;
+        } else {
+          lastCallSignature = signature;
+          repeatedCalls = 0;
+        }
+        if (repeatedCalls >= 6) {
+          throw new ProviderError(
+            `the model repeated the same ${call.name} call ${repeatedCalls + 1} times in a row; stopping to avoid a loop`,
+          );
+        }
+
         const result = await executeTool(call, tools, options, trace);
         messages.push({ role: "tool", tool_call_id: call.id, content: result.output });
       }
@@ -133,7 +189,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       answer,
     });
 
-    return { answer, turns, usage, ...trace };
+    return { answer, turns, usage, compactions, ...trace };
   } catch (error) {
     session.append({
       type: "run_end",
@@ -144,6 +200,9 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       answer,
       error: error instanceof Error ? error.message : String(error),
     });
+    if (error instanceof Error) {
+      (error as Error & { partial?: AgentPartial }).partial = { turns, usage, compactions };
+    }
     throw error;
   } finally {
     await kap.stop();

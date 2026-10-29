@@ -101,6 +101,7 @@ test("stops at max turns", async () => {
           cwd: dir.path,
           title: "test",
           maxTurns: 2,
+          contextTokens: 128_000,
           signal: new AbortController().signal,
           session,
           kap,
@@ -137,6 +138,7 @@ test("an already aborted signal fails fast", async () => {
           cwd: dir.path,
           title: "test",
           maxTurns: 3,
+          contextTokens: 128_000,
           signal: controller.signal,
           session,
           kap,
@@ -177,11 +179,110 @@ test("fails when the model hits its output limit", async () => {
           cwd: dir.path,
           title: "test",
           maxTurns: 3,
+          contextTokens: 128_000,
           signal: new AbortController().signal,
           session,
           kap,
         }),
       /output limit/,
+    );
+  } finally {
+    dir.cleanup();
+  }
+});
+
+test("compacts the context before the window fills", async () => {
+  let summaryCalls = 0;
+  let issued = 0;
+  const provider = {
+    model: "fake-model",
+    async complete(messages: Array<{ role: string; content: unknown }>) {
+      if (String(messages[0]?.content ?? "").includes("You compress")) {
+        summaryCalls += 1;
+        return {
+          content: "earlier steps summarized",
+          reasoning: "",
+          toolCalls: [],
+          usage: undefined,
+          finishReason: "stop",
+        };
+      }
+      if (issued < 4) {
+        issued += 1;
+        return {
+          content: "",
+          reasoning: "",
+          toolCalls: [{ id: `call_${issued}`, name: "bash", arguments: '{"command":"seq 1 4000"}' }],
+          usage: undefined,
+          finishReason: "tool_calls",
+        };
+      }
+      return { content: "done", reasoning: "", toolCalls: [], usage: undefined, finishReason: "stop" };
+    },
+  } as unknown as OpenAiCompatibleProvider;
+
+  const dir = tempDir();
+  try {
+    const session = new SessionLog(join(dir.path, "session"), newRunId());
+    const kap = KapAdapter.detect({ cwd: dir.path, mode: "off", runId: "run-1" });
+
+    const result = await runAgent({
+      provider,
+      tools: TOOLS,
+      systemPrompt: "test",
+      task: "make a lot of output",
+      cwd: dir.path,
+      title: "test",
+      maxTurns: 10,
+      contextTokens: 500,
+      signal: new AbortController().signal,
+      session,
+      kap,
+    });
+
+    assert.equal(result.answer, "done");
+    assert.ok(result.compactions >= 1, "the context was compacted");
+    assert.ok(summaryCalls >= 0);
+  } finally {
+    dir.cleanup();
+  }
+});
+
+test("stops when the model keeps repeating the same call", async () => {
+  const provider = {
+    model: "fake-model",
+    async complete() {
+      return {
+        content: "",
+        reasoning: "",
+        toolCalls: [{ id: "same", name: "bash", arguments: '{"command":"true"}' }],
+        usage: undefined,
+        finishReason: "tool_calls",
+      };
+    },
+  } as unknown as OpenAiCompatibleProvider;
+
+  const dir = tempDir();
+  try {
+    const session = new SessionLog(join(dir.path, "session"), newRunId());
+    const kap = KapAdapter.detect({ cwd: dir.path, mode: "off", runId: "run-1" });
+
+    await assert.rejects(
+      () =>
+        runAgent({
+          provider,
+          tools: TOOLS,
+          systemPrompt: "test",
+          task: "loop",
+          cwd: dir.path,
+          title: "test",
+          maxTurns: 20,
+          contextTokens: 128_000,
+          signal: new AbortController().signal,
+          session,
+          kap,
+        }),
+      /repeated the same bash call/,
     );
   } finally {
     dir.cleanup();

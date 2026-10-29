@@ -11,9 +11,10 @@ export interface Settings {
   api_key?: string;
   max_turns?: number;
   timeout_seconds?: number;
+  context_tokens?: number;
 }
 
-export type SettingName = "model" | "base-url" | "api-key" | "max-turns" | "timeout";
+export type SettingName = "model" | "base-url" | "api-key" | "max-turns" | "timeout" | "context-tokens";
 
 export const SETTING_NAMES: readonly SettingName[] = [
   "model",
@@ -21,6 +22,7 @@ export const SETTING_NAMES: readonly SettingName[] = [
   "api-key",
   "max-turns",
   "timeout",
+  "context-tokens",
 ];
 
 export function cocseakHome(): string {
@@ -102,6 +104,11 @@ export function setSetting(settings: Settings, name: SettingName, raw: string): 
       if (!Number.isInteger(seconds) || seconds <= 0) throw new ConfigError("timeout must be a positive number of seconds");
       return { ...settings, timeout_seconds: seconds };
     }
+    case "context-tokens": {
+      const tokens = Number(value);
+      if (!Number.isInteger(tokens) || tokens <= 0) throw new ConfigError("context-tokens must be a positive integer");
+      return { ...settings, context_tokens: tokens };
+    }
   }
 }
 
@@ -112,6 +119,7 @@ export function unsetSetting(settings: Settings, name: SettingName): Settings {
   if (name === "api-key") delete next.api_key;
   if (name === "max-turns") delete next.max_turns;
   if (name === "timeout") delete next.timeout_seconds;
+  if (name === "context-tokens") delete next.context_tokens;
   return next;
 }
 
@@ -137,6 +145,13 @@ function normalize(raw: Record<string, unknown>): Settings {
     raw.timeout_seconds > 0
   ) {
     settings.timeout_seconds = raw.timeout_seconds;
+  }
+  if (
+    typeof raw.context_tokens === "number" &&
+    Number.isInteger(raw.context_tokens) &&
+    raw.context_tokens > 0
+  ) {
+    settings.context_tokens = raw.context_tokens;
   }
   return settings;
 }

@@ -26,6 +26,7 @@ export interface ReportInput {
   answer: string;
   turns: number;
   usage: Usage;
+  compactions: number;
   duration_ms: number;
   session: string;
   kap: Record<string, unknown>;
@@ -42,6 +43,9 @@ export interface FailureInput {
   session: string | null;
   kind: "usage" | "config" | "timeout" | "max_turns" | "provider" | "tool" | "interrupted" | "internal";
   message: string;
+  turns?: number;
+  usage?: Usage;
+  compactions?: number;
 }
 
 export interface Report extends ReportInput {
@@ -58,6 +62,9 @@ export interface FailureReport {
   model: string;
   cwd: string;
   session: string | null;
+  turns?: number;
+  usage?: Usage;
+  compactions?: number;
   error: { kind: FailureInput["kind"]; message: string };
 }
 
@@ -87,6 +94,9 @@ export function buildFailureReport(input: FailureInput): FailureReport {
     model: input.model,
     cwd: input.cwd,
     session: input.session,
+    ...(input.turns !== undefined ? { turns: input.turns } : {}),
+    ...(input.usage !== undefined ? { usage: input.usage } : {}),
+    ...(input.compactions !== undefined ? { compactions: input.compactions } : {}),
     error: { kind: input.kind, message: input.message },
   };
 }
@@ -120,6 +130,9 @@ export function renderText(report: Report): string {
   if (report.decisions.length > 0) {
     lines.push(`decisions: ${report.decisions.length}`);
   }
+  if (report.compactions > 0) {
+    lines.push(`compacted: ${report.compactions} time(s)`);
+  }
   if (report.commit) lines.push(`commit: ${report.commit}`);
   lines.push(`session: ${report.session}`);
   if (report.kap.active === true) {
@@ -141,6 +154,9 @@ export function renderMarkdown(report: Report): string {
   lines.push(`- session: \`${report.session}\``);
   if (report.kap.active === true) {
     lines.push(`- kap attempt: \`${String(report.kap.attempt ?? "")}\``);
+  }
+  if (report.compactions > 0) {
+    lines.push(`- context compactions: ${report.compactions}`);
   }
   lines.push("", "## Answer", "", report.answer, "");
 

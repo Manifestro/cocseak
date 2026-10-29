@@ -10,6 +10,7 @@ const report = buildReport({
   cwd: "/repo",
   answer: "Fixed the lexer.\nRan the tests.",
   turns: 3,
+  compactions: 1,
   usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
   duration_ms: 12_400,
   session: "/home/me/.cocseak/sessions/repo-1234/run-1/session.v1.jsonl",
@@ -29,6 +30,7 @@ test("the text report is compact and starts with the facts", () => {
   assert.match(text, /^changed: 1 file\(s\) \(\+10 -2\) · src\/lexer\.ts$/m);
   assert.match(text, /^ran: pnpm test → 0$/m);
   assert.match(text, /^decisions: 1$/m);
+  assert.match(text, /^compacted: 1 time\(s\)$/m);
   assert.match(text, /^commit: abc1234$/m);
   assert.match(text, /^kap: attempt-7$/m);
   assert.match(text, /Fixed the lexer\.\nRan the tests\.\n$/);
@@ -62,4 +64,19 @@ test("failure reports keep the same envelope", () => {
   assert.equal(failure.ok, false);
   assert.equal(failure.status, "failed");
   assert.equal(failure.error.kind, "timeout");
+
+  const partial = buildFailureReport({
+    title: "fix parser",
+    model: "deepseek-chat",
+    cwd: "/repo",
+    session: "s",
+    kind: "max_turns",
+    message: "too many turns",
+    turns: 50,
+    usage: { total_tokens: 12 },
+    compactions: 3,
+  });
+  assert.equal(partial.turns, 50);
+  assert.equal(partial.compactions, 3);
+  assert.equal(partial.usage?.total_tokens, 12);
 });

@@ -10,6 +10,7 @@ Names:
   api-key     API key (stored in the settings file, chmod 600)
   max-turns   model turns before a run fails
   timeout     wall-clock limit in seconds
+  context-tokens  model context window (compaction happens at 75%)
 `;
 
 /** `cocseak config [show|path|set|unset]` — the first thing a new install needs. */

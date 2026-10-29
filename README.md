@@ -139,7 +139,8 @@ Stored in `~/.cocseak/config.json` (override the directory with `COCSEAK_HOME`):
   "model": "deepseek-chat",
   "base_url": "https://api.deepseek.com/v1",
   "max_turns": 50,
-  "timeout_seconds": 1800
+  "timeout_seconds": 1800,
+  "context_tokens": 128000
 }
 ```
 
@@ -183,6 +184,7 @@ cocseak doctor [--offline]
 | `--api-key <key>` | Key. Default: `$COCSEAK_API_KEY`, `$DEEPSEEK_API_KEY`, the settings file. |
 | `--max-turns <n>` | Model turns before the run fails. Default: 50. |
 | `--timeout <sec>` | Wall-clock limit. Default: 1800. |
+| `--context-tokens <n>` | Model context window. Older steps are summarized before 75% of it is reached. Default: 128000. |
 | `--json` | Print the report as one JSON object on stdout. |
 | `--answer-only` | Print only the final answer, without the report header. |
 | `--report <path>` | Also write the report to a file (JSON, or Markdown if the name ends in `.md`). |
@@ -223,6 +225,7 @@ The product of a run is a report, not a transcript. `--json` prints it as one ob
   "cwd": "/repo",
   "answer": "Fixed 3 issues ...",
   "turns": 4,
+  "compactions": 1,
   "usage": { "prompt_tokens": 9120, "completion_tokens": 1130, "total_tokens": 10250 },
   "duration_ms": 18422,
   "changes": {
@@ -262,6 +265,27 @@ On failure the same channel carries a report with `ok: false`:
 | 3 | Timeout. |
 | 4 | Max turns reached. |
 | 130 | Interrupted (SIGINT/SIGTERM). |
+
+## Long runs
+
+A run can outgrow the model's window: twenty tool calls with real output are enough. Before each
+turn cocseak estimates the prompt, and once it passes 75% of `--context-tokens` it compacts:
+
+- the system prompt, the original task, and the last few steps stay verbatim;
+- everything older is replaced by a model-written summary of decisions, files, commands, and what
+  remains open;
+- if the summarizer fails, the older steps are dropped with a note instead;
+- if a single huge tool result is still too big, it is truncated.
+
+The run continues with the compacted history, and the number of compactions appears in the report:
+
+```text
+status: completed · 9 turns · 48.2 s · deepseek-chat
+compacted: 2 time(s)
+```
+
+Set `--context-tokens` to the window of the model you actually use (for example `32768` for a
+32k model). The summarization itself is one extra model request per compaction.
 
 ## Calling it from another agent
 
@@ -362,6 +386,8 @@ The full adapter design, payloads, and known gaps are in [docs/KAP.md](docs/KAP.
   the log is what the harness saw.
 - **Transient provider failures are retried.** 429, 5xx, and network errors get up to three attempts
   with backoff; a provider that ignores `stream` and answers with plain JSON is still understood.
+- **Runaway repetition is stopped.** Seven identical tool calls in a row end the run with an error
+  instead of burning turns, while a task that legitimately repeats a command five times still runs.
 
 ## Roadmap
 

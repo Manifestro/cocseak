@@ -1,5 +1,19 @@
 import { hostname, platform, release } from "node:os";
 
+/**
+ * KAP's briefing ends by telling the agent to run commands through `kap exec` and to record
+ * decisions with the CLI. For cocseak that is wrong on both counts: tool calls are recorded by the
+ * hooks already, and decisions go through the `record_decision` tool. Left in, the model wraps
+ * every command in `kap exec`, recording each one twice.
+ */
+function sanitizeBriefing(briefing: string): string {
+  return briefing
+    .split(/\n{2,}/)
+    .filter((paragraph) => !/kap exec|kap decision add|kap evidence attach/.test(paragraph))
+    .join("\n\n")
+    .trim();
+}
+
 export interface PromptInput {
   cwd: string;
   briefing: string | null;
@@ -40,8 +54,8 @@ export function buildSystemPrompt(input: PromptInput): string {
     );
   }
 
-  if (input.briefing) {
-    lines.push("", "## Earlier work in this attempt", input.briefing.trim());
+  if (input.briefing && input.briefing.trim() !== "") {
+    lines.push("", "## Earlier work in this attempt", sanitizeBriefing(input.briefing));
   }
 
   return `${lines.join("\n")}\n`;

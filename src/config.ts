@@ -7,6 +7,7 @@ export interface Config {
   model: string;
   maxTurns: number;
   timeoutMs: number;
+  contextTokens: number;
   briefing: boolean;
 }
 
@@ -14,6 +15,7 @@ export const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
 export const DEFAULT_MODEL = "deepseek-chat";
 export const DEFAULT_MAX_TURNS = 50;
 export const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+export const DEFAULT_CONTEXT_TOKENS = 128_000;
 
 export interface ConfigInput {
   baseUrl: string | undefined;
@@ -21,6 +23,7 @@ export interface ConfigInput {
   model: string | undefined;
   maxTurns: number | undefined;
   timeoutMs: number | undefined;
+  contextTokens: number | undefined;
   briefing: boolean;
   settings?: Settings;
 }
@@ -80,6 +83,7 @@ export function resolveConfig(input: ConfigInput, env: NodeJS.ProcessEnv = proce
   const timeoutMs =
     input.timeoutMs ??
     (settings.timeout_seconds !== undefined ? settings.timeout_seconds * 1000 : DEFAULT_TIMEOUT_MS);
+  const contextTokens = input.contextTokens ?? settings.context_tokens ?? DEFAULT_CONTEXT_TOKENS;
 
   return {
     baseUrl: baseUrl.replace(/\/+$/, ""),
@@ -87,6 +91,7 @@ export function resolveConfig(input: ConfigInput, env: NodeJS.ProcessEnv = proce
     model,
     maxTurns,
     timeoutMs,
+    contextTokens,
     briefing: input.briefing,
   };
 }
