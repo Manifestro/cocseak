@@ -61,7 +61,7 @@ Bump `package.json` and `src/version.ts` together; `cocseak --version` must matc
 ## Known limitations
 
 - macOS/Linux only; the agent runs `sh`, not PowerShell.
-- No session resume yet: every run starts cold.
+- `--resume` replays the logged conversation; runs from before 0.1.3 resume from a summary.
 - Tools run sequentially; no parallel tool calls.
 - Provider retries are bounded: three attempts, then the run fails.
 - Context is compacted at 75% of `--context-tokens`; each compaction costs one extra model call.

@@ -277,6 +277,26 @@ On failure the same channel carries a report with `ok: false`:
 | 4 | Max turns reached. |
 | 130 | Interrupted (SIGINT/SIGTERM). |
 
+## Continuing a run
+
+Every run logs its whole conversation. `--resume` picks it up again, so the model remembers what it
+was told, what it ran, and what it decided:
+
+```sh
+cocseak --os --title "fix parser" --task "make the lexer accept trailing commas"
+cocseak --os --resume last --task "now add a test for the empty list"
+cocseak --os --resume last                       # no new instruction: carry on, or confirm it is done
+cocseak --os --resume run-20261029213546-gomtlb  # a specific run; the report's session path works too
+```
+
+`last` is the newest run started from the current directory. A resumed run works where the earlier
+one did: if that was a KAP attempt, it continues in the same worktree, records into the same
+attempt, and commits on the same branch. The title carries over unless `--title` is given. The
+report says `resumed: <run>`, and resumed runs chain — each one can be resumed again.
+
+Runs logged before 0.1.3 kept no transcript; resuming one starts from a summary of its commands,
+results, and answer instead.
+
 ## Long runs
 
 A run can outgrow the model's window: twenty tool calls with real output are enough. Before each
@@ -393,8 +413,8 @@ The full adapter design, payloads, and known gaps are in [docs/KAP.md](docs/KAP.
 
 ## Design notes
 
-- **No session continuity.** Every run starts cold. Continuity is the caller's job; a router that
-  wants memory passes it in the task or through the KAP briefing.
+- **A run starts cold unless it resumes.** `--resume` continues an earlier run's conversation;
+  otherwise memory is the caller's job, passed in the task or through the KAP briefing.
 - **No subagents, no plan mode.** The task is the plan. One model, one loop, one workspace.
 - **Workspace confinement is path-based, not a sandbox.** `bash` can still do anything the user can.
   Treat `--cwd` as a contract, not a jail.
@@ -408,7 +428,7 @@ The full adapter design, payloads, and known gaps are in [docs/KAP.md](docs/KAP.
 ## Roadmap
 
 - [ ] `kap import cocseak` — import the session log, mirroring `kap import dsh`
-- [ ] `--resume <session>` — continue a run from its log
+- [x] `--resume <run>` — continue a run from its log
 - [ ] parallel tool calls where the model asks for them
 - [ ] prompt caching for long system prompts
 - [ ] an approval policy for write tools (`--read-only`, `--ask`)

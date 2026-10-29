@@ -30,6 +30,10 @@ export interface AgentOptions {
   signal: AbortSignal;
   session: SessionLog;
   kap: KapAdapter;
+  /** The conversation of an earlier run to continue, without its system prompt. */
+  history?: readonly ChatMessage[];
+  /** The run `history` comes from. */
+  resumedFrom?: string;
   onEvent?: (event: AgentEvent) => void;
 }
 
@@ -56,10 +60,8 @@ export interface AgentResult {
 export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   const { provider, tools, session, kap } = options;
   const schemas: ToolSchema[] = toolSchemas(tools);
-  const messages: ChatMessage[] = [
-    { role: "system", content: options.systemPrompt },
-    { role: "user", content: options.task },
-  ];
+  const history = options.history ?? [];
+  const messages: ChatMessage[] = [{ role: "system", content: options.systemPrompt }, ...history];
 
   session.append({
     type: "run_start",
@@ -69,7 +71,18 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     task: options.task,
     model: provider.model,
     cwd: options.cwd,
+    ...(options.resumedFrom ? { resumed_from: options.resumedFrom } : {}),
   });
+  if (history.length > 0) {
+    session.append({ type: "history", time: Date.now(), messages: [...history] });
+  }
+
+  // Every message is logged as it joins the conversation, so `--resume` can rebuild it exactly.
+  const push = (message: ChatMessage): void => {
+    messages.push(message);
+    session.append({ type: "message", time: Date.now(), message });
+  };
+  push({ role: "user", content: options.task });
 
   const usage: Usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
   const trace: { commands: CommandTrace[]; decisions: DecisionTrace[]; changed: ChangeTrace[] } = {
@@ -112,6 +125,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         const after = estimateTokens(messages);
         if (after < before) {
           compactions += 1;
+          session.append({ type: "history", time: Date.now(), messages: messages.slice(1) });
           options.onEvent?.({ type: "compact", before, after, summarized: compacted.summarized });
         }
       }
@@ -144,10 +158,11 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
 
       if (turn.toolCalls.length === 0) {
         answer = turn.content.trim();
+        push({ role: "assistant", content: turn.content });
         break;
       }
 
-      messages.push({
+      push({
         role: "assistant",
         content: turn.content === "" ? null : turn.content,
         tool_calls: turn.toolCalls,
@@ -169,7 +184,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         }
 
         const result = await executeTool(call, tools, options, trace);
-        messages.push({ role: "tool", tool_call_id: call.id, content: result.output });
+        push({ role: "tool", tool_call_id: call.id, content: result.output });
       }
     }
 

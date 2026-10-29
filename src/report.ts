@@ -30,6 +30,8 @@ export interface ReportInput {
   duration_ms: number;
   session: string;
   kap: Record<string, unknown>;
+  /** The run this one continued, when started with `--resume`. */
+  resumed_from?: string;
   changes: ChangeSet;
   commit: string | null;
   /** Changed files kept out of the commit: too large for git, or holding a credential. */
@@ -135,6 +137,7 @@ export function renderText(report: Report): string {
   if (report.compactions > 0) {
     lines.push(`compacted: ${report.compactions} time(s)`);
   }
+  if (report.resumed_from) lines.push(`resumed: ${report.resumed_from}`);
   if (report.commit) lines.push(`commit: ${report.commit}`);
   for (const file of report.left_out ?? []) {
     lines.push(`not committed: ${file.path} (${file.reason})`);

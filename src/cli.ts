@@ -1,6 +1,4 @@
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -30,7 +28,18 @@ import {
   renderText,
   type FailureReport,
 } from "./report.js";
-import { newRunId, SessionLog } from "./session.js";
+import {
+  findSession,
+  loadSession,
+  newRunId,
+  resumedSessionDirectory,
+  SessionLog,
+  workspaceSessions,
+} from "./session.js";
+
+/** What a resumed run is told when the caller gives it no new instruction. */
+const CONTINUE_TASK =
+  "Continue the work from where it stopped. If the task is already done, check it and say so.";
 import { loadSettings, settingsPath } from "./settings.js";
 import { resolveTask } from "./task.js";
 import { TOOLS } from "./tools/index.js";
@@ -83,13 +92,25 @@ export async function main(argv: readonly string[]): Promise<number> {
       throw new UsageError("cocseak has no interactive mode: pass --os and a --task");
     }
 
-    const requestedCwd = resolve(options.cwd ?? process.cwd());
+    // A resumed run continues where the earlier one worked: its attempt worktree, when it had one.
+    const resumed = options.resume
+      ? loadSession(findSession(options.resume, resolve(options.cwd ?? process.cwd())))
+      : null;
+    if (resumed && !options.cwd && !existsSync(resumed.cwd)) {
+      throw new UsageError(
+        `--resume: the workspace of ${resumed.runId} is gone (${resumed.cwd}); ` +
+          "its attempt may have been cleaned. Pass --cwd to continue somewhere else.",
+      );
+    }
+
+    const requestedCwd = resolve(options.cwd ?? resumed?.cwd ?? process.cwd());
     if (!existsSync(requestedCwd) || !statSync(requestedCwd).isDirectory()) {
       throw new UsageError(`--cwd does not exist or is not a directory: ${requestedCwd}`);
     }
     cwd = requestedCwd;
 
-    const task = resolveTask(options, readStdinIfRequested(options));
+    const continuing = resumed !== null && options.task === undefined && options.taskFile === undefined;
+    const task = continuing ? CONTINUE_TASK : resolveTask(options, readStdinIfRequested(options));
     if (task.trim() === "") throw new UsageError("the task is empty");
 
     const loadedSettings = loadSettings();
@@ -105,9 +126,18 @@ export async function main(argv: readonly string[]): Promise<number> {
     });
     model = config.model;
 
-    title = options.title ?? basename(requestedCwd);
+    title = options.title ?? resumed?.title ?? basename(requestedCwd);
     const runId = newRunId();
-    session = new SessionLog(sessionDirectory(requestedCwd, runId), runId);
+    session = new SessionLog(
+      resumed ? resumedSessionDirectory(resumed.path, runId) : join(workspaceSessions(requestedCwd), runId),
+      runId,
+    );
+    if (resumed) {
+      say(`cocseak: resuming ${resumed.runId} (${resumed.messages.length} messages)`);
+      if (!resumed.exact) {
+        say("cocseak: that run kept no full transcript (before 0.1.3); continuing from a summary of it");
+      }
+    }
 
     const debug = (message: string): void => {
       if (process.env.COCSEAK_DEBUG) process.stderr.write(`cocseak: ${message}\n`);
@@ -183,6 +213,7 @@ export async function main(argv: readonly string[]): Promise<number> {
         signal: controller.signal,
         session,
         kap,
+        ...(resumed ? { history: resumed.messages, resumedFrom: resumed.runId } : {}),
         onEvent: (event) => {
           if (quiet) return;
           if (event.type === "turn") process.stderr.write(`\nturn ${event.turn}\n`);
@@ -233,6 +264,7 @@ export async function main(argv: readonly string[]): Promise<number> {
             ? { created: true, branch: attached.created.branch, worktree: attached.created.worktree }
             : {}),
         },
+        ...(resumed ? { resumed_from: resumed.runId } : {}),
         changes,
         commit,
         ...(leftOut.length > 0 ? { left_out: leftOut } : {}),
@@ -348,17 +380,6 @@ function writeReport(path: string, report: ReturnType<typeof buildReport>): void
   mkdirSync(dirname(absolute), { recursive: true });
   const markdown = /\.(md|markdown)$/i.test(absolute);
   writeFileSync(absolute, markdown ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`, "utf8");
-}
-
-function sessionDirectory(cwd: string, runId: string): string {
-  const home = process.env.COCSEAK_HOME?.trim() || join(homedir(), ".cocseak");
-  const slug =
-    basename(cwd)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "workspace";
-  const hash = createHash("sha1").update(cwd).digest("hex").slice(0, 8);
-  return join(home, "sessions", `${slug}-${hash}`, runId);
 }
 
 function oneliner(text: string, limit: number): string {

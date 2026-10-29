@@ -65,7 +65,16 @@ test("runs tool calls until the model answers and logs every step", async () => 
 
     assert.deepEqual(
       lines.map((line) => line.type),
-      ["run_start", "tool_call", "tool_result", "run_end"],
+      [
+        "run_start",
+        "message", // the task
+        "message", // the assistant turn with its tool call
+        "tool_call",
+        "tool_result",
+        "message", // the tool result, as the model sees it
+        "message", // the final answer
+        "run_end",
+      ],
     );
   } finally {
     dir.cleanup();

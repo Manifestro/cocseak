@@ -8,6 +8,7 @@ export interface CliOptions {
   title: string | undefined;
   task: string | undefined;
   taskFile: string | undefined;
+  resume: string | undefined;
   cwd: string | undefined;
   model: string | undefined;
   baseUrl: string | undefined;
@@ -32,6 +33,7 @@ export const USAGE = `cocseak — one-shot coding harness for OpenAI-compatible 
 Usage:
   cocseak --os --title <title> --task <task> [options]
   cocseak --os --title <title> --task-file <path> [options]
+  cocseak --os --resume <run|last> [--task <next step>] [options]
 
 Required:
   --os                 Run one shot and exit. This is the only mode in this version.
@@ -40,6 +42,10 @@ Required:
 Options:
   --title <text>       Label for the run. Empty is allowed. Defaults to the directory name.
   --task-file <path>   Read the task from a file instead of --task.
+  --resume <run>       Continue an earlier run with its whole conversation: a run id, a session
+                       path, or "last" (the newest run started from this directory). It works
+                       in that run's workspace, so a KAP attempt continues in its own worktree.
+                       --task is the next instruction; without it the model carries on.
   --cwd <path>         Workspace the agent may read and write. Defaults to the process cwd.
   --model <id>         Model id. Default: $COCSEAK_MODEL, $DEEPSEEK_MODEL, or deepseek-chat.
   --base-url <url>     OpenAI-compatible base URL. Default: $COCSEAK_BASE_URL,
@@ -91,6 +97,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
         title: { type: "string" },
         task: { type: "string" },
         "task-file": { type: "string" },
+        resume: { type: "string" },
         cwd: { type: "string" },
         model: { type: "string" },
         "base-url": { type: "string" },
@@ -129,6 +136,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     title: values.title,
     task: values.task,
     taskFile: values["task-file"],
+    resume: values.resume,
     cwd: values.cwd,
     model: values.model,
     baseUrl: values["base-url"],
