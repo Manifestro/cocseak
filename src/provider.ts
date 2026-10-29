@@ -6,6 +6,10 @@ export interface ProviderOptions {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** Total attempts, including the first one. */
+  attempts?: number;
+  /** Base delay between retries; doubles each attempt. */
+  backoffMs?: number;
   /** Injected only in tests. */
   fetchImpl?: typeof fetch;
 }
@@ -30,29 +34,49 @@ interface Chunk {
   error?: { message?: string; type?: string };
 }
 
+interface CompletionMessage {
+  content?: string | null;
+  reasoning_content?: string | null;
+  tool_calls?: Array<{
+    id?: string;
+    function?: { name?: string; arguments?: string };
+  }>;
+}
+
+interface CompletionResponse {
+  choices?: Array<{ message?: CompletionMessage; finish_reason?: string | null }>;
+  usage?: Usage;
+  error?: { message?: string };
+}
+
+const DEFAULT_ATTEMPTS = 3;
+const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
+
 /**
  * A client for the subset of the OpenAI chat-completions API that a coding harness needs:
  * streaming, tool calls, and reasoning-model extras (DeepSeek's `reasoning_content`).
  *
- * Deliberately dependency-free: `fetch` ships with Node.
+ * Deliberately dependency-free: `fetch` ships with Node. Transient failures (429, 5xx, network)
+ * are retried with backoff; a provider that ignores `stream` and answers with plain JSON is
+ * still understood.
  */
 export class OpenAiCompatibleProvider {
   readonly model: string;
   private readonly url: string;
   private readonly apiKey: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly attempts: number;
+  private readonly backoffMs: number;
 
   constructor(options: ProviderOptions) {
     this.url = chatCompletionsUrl(options.baseUrl);
     this.apiKey = options.apiKey;
     this.model = options.model;
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.attempts = Math.max(1, options.attempts ?? DEFAULT_ATTEMPTS);
+    this.backoffMs = options.backoffMs ?? 500;
   }
 
-  /**
-   * One model turn. Streams text through `onDelta` as it arrives and returns the assembled turn,
-   * including any tool calls the model wants to make.
-   */
   async complete(
     messages: readonly ChatMessage[],
     tools: readonly ToolSchema[],
@@ -70,6 +94,31 @@ export class OpenAiCompatibleProvider {
       body.tool_choice = "auto";
     }
 
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= this.attempts; attempt += 1) {
+      if (signal?.aborted) throw new ProviderError("request aborted");
+      try {
+        return await this.once(body, onDelta, signal);
+      } catch (error) {
+        lastError = error;
+        const retryable = error instanceof ProviderError && error.retryable;
+        if (!retryable || attempt === this.attempts) throw error;
+
+        const wait =
+          error instanceof ProviderError && error.retryAfterMs !== undefined
+            ? error.retryAfterMs
+            : Math.min(this.backoffMs * 2 ** (attempt - 1), 4_000);
+        await sleep(wait, signal);
+      }
+    }
+    throw lastError;
+  }
+
+  private async once(
+    body: Record<string, unknown>,
+    onDelta: ((text: string) => void) | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<AssistantTurn> {
     let response: Response;
     try {
       response = await this.fetchImpl(this.url, {
@@ -83,24 +132,66 @@ export class OpenAiCompatibleProvider {
         ...(signal ? { signal } : {}),
       });
     } catch (error) {
+      if (signal?.aborted) throw new ProviderError("request aborted");
       throw new ProviderError(
         `Could not reach the model provider at ${this.url}: ${messageOf(error)}`,
+        undefined,
+        undefined,
+        { retryable: true },
       );
     }
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
+      const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
       throw new ProviderError(
         `Provider returned HTTP ${response.status}${text ? `: ${truncate(text, 2000)}` : ""}`,
         response.status,
         text,
+        { retryable: RETRYABLE_STATUS.has(response.status), retryAfterMs: retryAfter },
       );
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("text/event-stream")) {
+      return this.fromJson(response, contentType);
     }
     if (!response.body) {
       throw new ProviderError("Provider returned an empty response body");
     }
-
     return this.consume(response.body, onDelta);
+  }
+
+  /** Some compatible servers ignore `stream: true` and answer with a plain JSON body. */
+  private async fromJson(response: Response, contentType: string): Promise<AssistantTurn> {
+    const text = await response.text().catch(() => "");
+    let payload: CompletionResponse;
+    try {
+      payload = JSON.parse(text) as CompletionResponse;
+    } catch {
+      throw new ProviderError(
+        `Provider answered with ${contentType || "an unknown content type"} instead of an event stream: ${truncate(text, 500)}`,
+      );
+    }
+    if (payload.error) {
+      throw new ProviderError(`Provider error: ${payload.error.message ?? "unknown"}`);
+    }
+
+    const choice = payload.choices?.[0];
+    const message = choice?.message ?? {};
+    const toolCalls: ToolCall[] = (message.tool_calls ?? []).map((call, index) => ({
+      id: call.id ?? `call_${index}`,
+      name: call.function?.name ?? "",
+      arguments: call.function?.arguments ?? "{}",
+    }));
+
+    return {
+      content: message.content ?? "",
+      reasoning: message.reasoning_content ?? "",
+      toolCalls,
+      usage: payload.usage,
+      finishReason: choice?.finish_reason ?? undefined,
+    };
   }
 
   private async consume(
@@ -115,6 +206,7 @@ export class OpenAiCompatibleProvider {
     let reasoning = "";
     let finishReason: string | undefined;
     let usage: Usage | undefined;
+    let parsedChunks = 0;
     const partial = new Map<number, { id: string; name: string; arguments: string }>();
 
     const handleLine = (line: string): void => {
@@ -128,6 +220,7 @@ export class OpenAiCompatibleProvider {
       } catch {
         return; // A malformed keep-alive fragment is not worth failing the run.
       }
+      parsedChunks += 1;
       if (chunk.error) {
         throw new ProviderError(`Provider error: ${chunk.error.message ?? "unknown"}`);
       }
@@ -146,7 +239,7 @@ export class OpenAiCompatibleProvider {
           const index = call.index ?? 0;
           const entry = partial.get(index) ?? { id: "", name: "", arguments: "" };
           if (call.id) entry.id = call.id;
-          if (call.function?.name) entry.name += call.function.name;
+          if (call.function?.name) entry.name = call.function.name;
           if (call.function?.arguments) entry.arguments += call.function.arguments;
           partial.set(index, entry);
         }
@@ -154,20 +247,29 @@ export class OpenAiCompatibleProvider {
       }
     };
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      let newline = buffer.indexOf("\n");
-      while (newline !== -1) {
-        const line = buffer.slice(0, newline).replace(/\r$/, "");
-        buffer = buffer.slice(newline + 1);
-        handleLine(line);
-        newline = buffer.indexOf("\n");
+        buffer += decoder.decode(value, { stream: true });
+        let newline = buffer.indexOf("\n");
+        while (newline !== -1) {
+          const line = buffer.slice(0, newline).replace(/\r$/, "");
+          buffer = buffer.slice(newline + 1);
+          handleLine(line);
+          newline = buffer.indexOf("\n");
+        }
       }
+      handleLine(buffer.replace(/\r$/, ""));
+    } catch (error) {
+      await reader.cancel().catch(() => {});
+      throw error;
     }
-    handleLine(buffer.replace(/\r$/, ""));
+
+    if (parsedChunks === 0 && content === "" && partial.size === 0) {
+      throw new ProviderError("Provider streamed no data");
+    }
 
     const toolCalls: ToolCall[] = [...partial.entries()]
       .sort(([a], [b]) => a - b)
@@ -194,6 +296,31 @@ function toWireMessage(message: ChatMessage): Record<string, unknown> {
   if (message.tool_call_id) wire.tool_call_id = message.tool_call_id;
   // `reasoning_content` is intentionally never sent back: DeepSeek rejects it on input.
   return wire;
+}
+
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 30_000);
+  return undefined;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("aborted"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(new Error("aborted"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export function messageOf(error: unknown): string {

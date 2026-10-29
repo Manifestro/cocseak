@@ -155,3 +155,30 @@ test("truncates huge output but keeps the end", async () => {
     dir.cleanup();
   }
 });
+
+test("refuses to write through a symlink even when the subdirectory is new", async () => {
+  const dir = tempDir();
+  const outside = tempDir();
+  try {
+    symlinkSync(outside.path, join(dir.path, "link"), "dir");
+    await assert.rejects(
+      () => writeFileTool.run({ path: "link/new/deep/file.txt", content: "x" }, context(dir.path)),
+      /outside the workspace/,
+    );
+  } finally {
+    dir.cleanup();
+    outside.cleanup();
+  }
+});
+
+test("refuses to read an unreasonably large file", async () => {
+  const dir = tempDir();
+  try {
+    writeFileSync(join(dir.path, "big.txt"), Buffer.alloc(11 * 1024 * 1024, 97));
+    const result = await readFileTool.run({ path: "big.txt" }, context(dir.path));
+    assert.equal(result.isError, true);
+    assert.match(result.output, /read limit/);
+  } finally {
+    dir.cleanup();
+  }
+});

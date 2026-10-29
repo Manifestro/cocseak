@@ -147,3 +147,43 @@ test("an already aborted signal fails fast", async () => {
     dir.cleanup();
   }
 });
+
+test("fails when the model hits its output limit", async () => {
+  const dir = tempDir();
+  try {
+    const provider = {
+      model: "fake-model",
+      async complete() {
+        return {
+          content: "half an answer",
+          reasoning: "",
+          toolCalls: [],
+          usage: undefined,
+          finishReason: "length",
+        };
+      },
+    } as unknown as OpenAiCompatibleProvider;
+
+    const session = new SessionLog(join(dir.path, "session"), newRunId());
+    const kap = KapAdapter.detect({ cwd: dir.path, mode: "off", runId: "run-1" });
+
+    await assert.rejects(
+      () =>
+        runAgent({
+          provider,
+          tools: TOOLS,
+          systemPrompt: "test",
+          task: "say hi",
+          cwd: dir.path,
+          title: "test",
+          maxTurns: 3,
+          signal: new AbortController().signal,
+          session,
+          kap,
+        }),
+      /output limit/,
+    );
+  } finally {
+    dir.cleanup();
+  }
+});

@@ -17,12 +17,22 @@ export class ConfigError extends Error {
 export class ProviderError extends Error {
   readonly status: number | undefined;
   readonly body: string | undefined;
+  /** Transient: the same request may succeed if sent again. */
+  readonly retryable: boolean;
+  readonly retryAfterMs: number | undefined;
 
-  constructor(message: string, status?: number, body?: string) {
+  constructor(
+    message: string,
+    status?: number,
+    body?: string,
+    options: { retryable?: boolean; retryAfterMs?: number } = {},
+  ) {
     super(message);
     this.name = "ProviderError";
     this.status = status;
     this.body = body;
+    this.retryable = options.retryable ?? false;
+    this.retryAfterMs = options.retryAfterMs;
   }
 }
 

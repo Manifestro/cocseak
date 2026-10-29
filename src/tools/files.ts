@@ -1,11 +1,12 @@
 import { existsSync, realpathSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import type { Tool, ToolResult } from "./types.js";
 import { ToolInputError, truncateForModel } from "./types.js";
 
 const READ_LIMIT_LINES = 2000;
+const MAX_READ_BYTES = 10 * 1024 * 1024;
 
 /** Resolve a tool path and refuse anything outside the workspace, symlinks included. */
 export function resolveWorkspacePath(cwd: string, input: string): string {
@@ -15,17 +16,27 @@ export function resolveWorkspacePath(cwd: string, input: string): string {
     throw new ToolInputError(`path "${input}" is outside the workspace (${cwd})`);
   }
 
-  // A symlink inside the workspace can still point out of it, so compare real paths.
+  // A symlink inside the workspace can still point out of it, so compare real paths. When the
+  // target does not exist yet, the nearest existing ancestor is the one that decides.
   const root = safeRealpath(cwd);
-  const probe = existsSync(absolute) ? absolute : dirname(absolute);
-  if (existsSync(probe)) {
-    const real = safeRealpath(probe);
-    const relReal = relative(root, real);
+  const probe = nearestExisting(absolute);
+  if (probe !== null) {
+    const relReal = relative(root, safeRealpath(probe));
     if (escapes(relReal)) {
       throw new ToolInputError(`path "${input}" resolves outside the workspace (${cwd})`);
     }
   }
   return absolute;
+}
+
+function nearestExisting(path: string): string | null {
+  let current = path;
+  while (true) {
+    if (existsSync(current)) return current;
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
 }
 
 function escapes(rel: string): boolean {
@@ -66,6 +77,23 @@ export const readFileTool: Tool = {
     if (input === "") throw new ToolInputError('missing required argument "path"');
     const absolute = resolveWorkspacePath(context.cwd, input);
 
+    try {
+      const info = await stat(absolute);
+      if (info.size > MAX_READ_BYTES) {
+        return {
+          output: `${input} is ${(info.size / 1024 / 1024).toFixed(1)} MB; the read limit is 10 MB.`,
+          isError: true,
+          exitCode: null,
+        };
+      }
+    } catch (error) {
+      return {
+        output: `Could not read ${displayPath(context.cwd, absolute)}: ${messageOf(error)}`,
+        isError: true,
+        exitCode: null,
+      };
+    }
+
     let text: string;
     try {
       text = await readFile(absolute, "utf8");
@@ -96,7 +124,11 @@ export const readFileTool: Tool = {
     const numbered = slice.map((line, index) => `${String(start + index + 1).padStart(width)}\t${line}`);
 
     if (slice.length === 0) {
-      return { output: `${input} is empty.`, isError: false, exitCode: null };
+      const message =
+        lines.length === 0
+          ? `${input} is empty.`
+          : `${input} has ${lines.length} lines; offset ${offset} is past the end.`;
+      return { output: message, isError: false, exitCode: null };
     }
     if (start + slice.length < lines.length) {
       numbered.push(`… ${lines.length - (start + slice.length)} more lines`);
@@ -145,7 +177,7 @@ export const writeFileTool: Tool = {
       exitCode: null,
       hook: {
         toolName: "Write",
-        toolInput: { file_path: absolute, content: args.content },
+        toolInput: { file_path: absolute },
         toolResponse: {},
         failed: false,
       },
@@ -181,6 +213,23 @@ export const editFileTool: Tool = {
       throw new ToolInputError('"old_string" and "new_string" are identical');
     }
     const absolute = resolveWorkspacePath(context.cwd, input);
+
+    try {
+      const info = await stat(absolute);
+      if (info.size > MAX_READ_BYTES) {
+        return {
+          output: `${input} is ${(info.size / 1024 / 1024).toFixed(1)} MB; the read limit is 10 MB.`,
+          isError: true,
+          exitCode: null,
+        };
+      }
+    } catch (error) {
+      return {
+        output: `Could not read ${displayPath(context.cwd, absolute)}: ${messageOf(error)}`,
+        isError: true,
+        exitCode: null,
+      };
+    }
 
     let text: string;
     try {
@@ -224,11 +273,7 @@ export const editFileTool: Tool = {
       exitCode: null,
       hook: {
         toolName: "Edit",
-        toolInput: {
-          file_path: absolute,
-          old_string: args.old_string,
-          new_string: args.new_string,
-        },
+        toolInput: { file_path: absolute },
         toolResponse: {},
         failed: false,
       },

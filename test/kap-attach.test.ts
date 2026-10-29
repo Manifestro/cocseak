@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -189,6 +189,60 @@ test("bootstraps a bare directory: git, baseline commit, kap init, attempt", () 
       const log = execFileSync("git", ["log", "--oneline"], { cwd: dir.path, encoding: "utf8" });
       assert.match(log, /cocseak: baseline/);
       assert.match(log, /chore: ignore \.kap/);
+    });
+  } finally {
+    dir.cleanup();
+    tools.cleanup();
+  }
+});
+
+test("works from a subdirectory of an existing KAP repository", () => {
+  const dir = initRepo();
+  const tools = tempDir();
+  try {
+    mkdirSync(join(dir.path, "packages", "app"), { recursive: true });
+    const { bin } = fakeKap(tools.path);
+
+    withPath(bin, () => {
+      const attached = attachKap({
+        cwd: join(dir.path, "packages", "app"),
+        mode: "auto",
+        runId: "run-1",
+        task: "x",
+        title: "Subdir",
+        init: true,
+        debug: () => {},
+      });
+      assert.equal(attached.created?.attempt, "attempt-test-1");
+      assert.equal(attached.adapter.state.active, true);
+    });
+  } finally {
+    dir.cleanup();
+    tools.cleanup();
+  }
+});
+
+test("initialises at the repository root, not in the subdirectory", () => {
+  const dir = initRepo();
+  const tools = tempDir();
+  try {
+    rmSync(join(dir.path, ".kap"), { recursive: true, force: true });
+    mkdirSync(join(dir.path, "packages", "app"), { recursive: true });
+    const { bin } = fakeKap(tools.path);
+
+    withPath(bin, () => {
+      const attached = attachKap({
+        cwd: join(dir.path, "packages", "app"),
+        mode: "auto",
+        runId: "run-1",
+        task: "x",
+        title: "Subdir",
+        init: true,
+        debug: () => {},
+      });
+      assert.equal(attached.created?.attempt, "attempt-test-1");
+      assert.ok(existsSync(join(dir.path, ".kap")), ".kap belongs to the repository root");
+      assert.equal(existsSync(join(dir.path, "packages", "app", ".kap")), false);
     });
   } finally {
     dir.cleanup();

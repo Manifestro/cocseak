@@ -1,6 +1,6 @@
 import { relative } from "node:path";
 
-import { MaxTurnsError, TimeoutError } from "./errors.js";
+import { MaxTurnsError, ProviderError, TimeoutError } from "./errors.js";
 import type { KapAdapter } from "./kap.js";
 import type { OpenAiCompatibleProvider } from "./provider.js";
 import type { SessionLog } from "./session.js";
@@ -92,6 +92,12 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       }
 
       addUsage(usage, turn.usage);
+
+      if (turn.finishReason === "length") {
+        throw new ProviderError(
+          "the model hit its output limit before finishing; narrow the task or raise max_tokens at the provider",
+        );
+      }
 
       if (turn.toolCalls.length === 0) {
         answer = turn.content.trim();

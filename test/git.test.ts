@@ -4,7 +4,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { captureBaseline, collectChanges, commitAll } from "../src/git.js";
+import { captureBaseline, collectChanges, commitAll, readHead } from "../src/git.js";
 import { tempDir } from "./helpers.js";
 
 function git(cwd: string, ...args: string[]): void {
@@ -108,6 +108,76 @@ test("commits the worktree only when something changed", () => {
     const log = execFileSync("git", ["log", "--oneline"], { cwd: dir.path, encoding: "utf8" });
     assert.match(log, /cocseak: test/);
     assert.equal(collectChanges(dir.path).files.length, 0);
+  } finally {
+    dir.cleanup();
+  }
+});
+
+test("commits even when git has no identity configured", () => {
+  const dir = tempDir();
+  const home = tempDir();
+  const previousHome = process.env.HOME;
+  const previousNoSystem = process.env.GIT_CONFIG_NOSYSTEM;
+  try {
+    process.env.HOME = home.path;
+    process.env.GIT_CONFIG_NOSYSTEM = "1";
+
+    git(dir.path, "init", "-q");
+    writeFileSync(join(dir.path, "a.txt"), "one\n");
+    git(dir.path, "add", ".");
+    git(dir.path, "commit", "-qm", "init");
+
+    writeFileSync(join(dir.path, "a.txt"), "one\ntwo\n");
+    const result = commitAll(dir.path, "cocseak: fallback identity");
+    assert.equal(result.committed, true);
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    if (previousNoSystem === undefined) delete process.env.GIT_CONFIG_NOSYSTEM;
+    else process.env.GIT_CONFIG_NOSYSTEM = previousNoSystem;
+    dir.cleanup();
+    home.cleanup();
+  }
+});
+
+test("reports work the agent committed itself, against the run's base", () => {
+  const dir = tempDir();
+  try {
+    git(dir.path, "init", "-q");
+    writeFileSync(join(dir.path, "a.txt"), "one\n");
+    git(dir.path, "add", ".");
+    git(dir.path, "commit", "-qm", "init");
+    const base = readHead(dir.path);
+    assert.ok(base);
+
+    writeFileSync(join(dir.path, "b.txt"), "x\ny\n");
+    writeFileSync(join(dir.path, "a.txt"), "one\ntwo\n");
+    git(dir.path, "add", ".");
+    git(dir.path, "commit", "-qm", "agent commit");
+
+    const changes = collectChanges(dir.path, [], null, base);
+    const byPath = new Map(changes.files.map((file) => [file.path, file]));
+    assert.equal(byPath.get("b.txt")?.status, "added");
+    assert.equal(byPath.get("b.txt")?.added, 2);
+    assert.equal(byPath.get("a.txt")?.status, "modified");
+    assert.equal(byPath.get("a.txt")?.added, 1);
+  } finally {
+    dir.cleanup();
+  }
+});
+
+test("still includes untracked files when comparing to the base", () => {
+  const dir = tempDir();
+  try {
+    git(dir.path, "init", "-q");
+    writeFileSync(join(dir.path, "a.txt"), "one\n");
+    git(dir.path, "add", ".");
+    git(dir.path, "commit", "-qm", "init");
+    const base = readHead(dir.path);
+
+    writeFileSync(join(dir.path, "new.txt"), "hello\nworld\n");
+    const changes = collectChanges(dir.path, [], null, base);
+    assert.equal(changes.files.find((file) => file.path === "new.txt")?.added, 2);
   } finally {
     dir.cleanup();
   }

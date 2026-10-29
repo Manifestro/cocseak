@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync } from "node:fs";
+import { appendFileSync, existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { ConfigError } from "./errors.js";
 import { isCleanWorktree } from "./git.js";
@@ -70,7 +70,9 @@ export function attachKap(options: {
     };
   }
 
-  let root = findKapRoot(cwd);
+  // KAP decides by real path; a symlinked workspace must not look like a fresh checkout.
+  const probe = safeRealpath(cwd);
+  let root = findKapRoot(probe);
   if (!root) {
     if (!options.init) {
       const reason = "no .kap repository here, and --no-init is set";
@@ -105,7 +107,7 @@ export function attachKap(options: {
     commitBaseline(root, notes);
   }
 
-  if (findAttempt(cwd)) {
+  if (findAttempt(probe)) {
     return {
       workspace: cwd,
       adapter: KapAdapter.detect({ cwd, mode: "on", runId, debug }),
@@ -143,23 +145,26 @@ export function attachKap(options: {
 
 /** Make `cwd` a git repository that KAP can start an attempt from. */
 function bootstrap(binary: string, cwd: string, notes: string[]): string {
-  if (resolve(cwd) === resolve(homedir())) {
+  const top = gitTopLevel(cwd);
+  const base = top ?? resolve(cwd);
+
+  if (base === resolve(homedir()) || dirname(base) === base) {
     throw new ConfigError(
-      "refusing to initialise a git repository in your home directory; run cocseak inside a project",
+      "refusing to initialise a git repository in your home directory or at the filesystem root; run cocseak inside a project",
     );
   }
 
-  if (!hasGit(cwd)) {
-    git(cwd, ["init", "-q"]);
+  if (!hasGit(base)) {
+    git(base, ["init", "-q"]);
     notes.push("no git repository here — initialised one");
   }
-  if (!hasCommits(cwd)) {
-    commitBaseline(cwd, notes);
+  if (!hasCommits(base)) {
+    commitBaseline(base, notes);
   }
 
   try {
     execFileSync(binary, ["init"], {
-      cwd,
+      cwd: base,
       encoding: "utf8",
       timeout: 60_000,
       stdio: ["ignore", "pipe", "pipe"],
@@ -173,14 +178,32 @@ function bootstrap(binary: string, cwd: string, notes: string[]): string {
   notes.push("initialised KAP (.kap/)");
 
   // `kap init` adds .kap/ to .gitignore; commit just that file so the tree is clean again.
-  if (gitStatus(cwd, ".gitignore") !== "") {
-    git(cwd, ["add", "--", ".gitignore"]);
-    git(cwd, ["commit", "-q", "-m", "chore: ignore .kap", "--", ".gitignore"], true);
+  if (gitStatus(base, ".gitignore") !== "") {
+    git(base, ["add", "--", ".gitignore"]);
+    git(base, ["commit", "-q", "-m", "chore: ignore .kap", "--", ".gitignore"], true) ??
+      git(
+        base,
+        ["-c", "user.name=cocseak", "-c", "user.email=cocseak@localhost", "commit", "-q", "-m", "chore: ignore .kap", "--", ".gitignore"],
+        true,
+      );
   }
 
-  const root = findKapRoot(cwd);
+  const root = findKapRoot(base);
   if (!root) throw new ConfigError("kap init finished, but no .kap directory appeared");
   return root;
+}
+
+function gitTopLevel(cwd: string): string | null {
+  const top = run(cwd, ["rev-parse", "--show-toplevel"])?.trim();
+  return top ? top : null;
+}
+
+function safeRealpath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
 }
 
 function ensureKapIgnored(root: string): void {
@@ -200,8 +223,15 @@ function ensureKapIgnored(root: string): void {
 
 function commitBaseline(cwd: string, notes: string[]): void {
   git(cwd, ["add", "-A"]);
-  git(cwd, ["commit", "-q", "--allow-empty", "-m", "cocseak: baseline"], true);
-  notes.push("committed the current files as a baseline");
+  const message = "cocseak: baseline";
+  const committed =
+    git(cwd, ["commit", "-q", "--allow-empty", "-m", message], true) ??
+    git(
+      cwd,
+      ["-c", "user.name=cocseak", "-c", "user.email=cocseak@localhost", "commit", "-q", "--allow-empty", "-m", message],
+      true,
+    );
+  if (committed !== null) notes.push("committed the current files as a baseline");
 }
 
 function startAttempt(binary: string, root: string, title: string, task: string): CreatedAttempt {

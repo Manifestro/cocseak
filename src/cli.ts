@@ -8,7 +8,7 @@ import { runAgent } from "./agent.js";
 import { parseCliArgs, USAGE, type CliOptions } from "./args.js";
 import { resolveConfig } from "./config.js";
 import { ConfigError, MaxTurnsError, ProviderError, TimeoutError, UsageError } from "./errors.js";
-import { captureBaseline, collectChanges, commitAll } from "./git.js";
+import { captureBaseline, collectChanges, commitAll, readHead } from "./git.js";
 import { runConfigCommand } from "./config-cli.js";
 import { runDoctorCommand } from "./doctor.js";
 import { attachKap } from "./kap-attach.js";
@@ -53,7 +53,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   try {
     options = parseCliArgs(argv);
   } catch (error) {
-    return fail(error, "usage", null, false);
+    return fail(error, "usage", null, argv.includes("--json"));
   }
 
   if (options.help) {
@@ -153,6 +153,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     });
 
     const baseline = captureBaseline(cwd);
+    const baseCommit = readHead(cwd);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -194,7 +195,7 @@ export async function main(argv: readonly string[]): Promise<number> {
 
       await session.flush();
 
-      const changes = collectChanges(cwd, result.changed, baseline);
+      const changes = collectChanges(cwd, result.changed, baseline, baseCommit);
       let commit: string | null = null;
       if (options.commit && kap.state.active) {
         const committed = commitAll(cwd, `cocseak: ${title}`);
@@ -212,7 +213,7 @@ export async function main(argv: readonly string[]): Promise<number> {
         answer: result.answer,
         turns: result.turns,
         usage: result.usage,
-        durationMs: Date.now() - startedAt,
+        duration_ms: Date.now() - startedAt,
         session: session.path,
         kap: {
           ...kap.describe(),

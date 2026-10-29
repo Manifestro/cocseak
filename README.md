@@ -238,8 +238,9 @@ The product of a run is a report, not a transcript. `--json` prints it as one ob
 ```
 
 `changes` comes from git when the workspace is a repository (untracked files included), and from
-the tool trace otherwise. Files that were already dirty when the run started are left out, so a
-nested caller sees what this run changed rather than what was lying around.
+the tool trace otherwise. It is measured against the commit the run started from, so work the agent
+committed itself still shows up. Files that were already dirty when the run started are left out,
+so a nested caller sees what this run changed rather than what was lying around.
 
 On failure the same channel carries a report with `ok: false`:
 
@@ -359,6 +360,8 @@ The full adapter design, payloads, and known gaps are in [docs/KAP.md](docs/KAP.
   Treat `--cwd` as a contract, not a jail.
 - **The session log is the source of truth for what happened.** If KAP and the log ever disagree,
   the log is what the harness saw.
+- **Transient provider failures are retried.** 429, 5xx, and network errors get up to three attempts
+  with backoff; a provider that ignores `stream` and answers with plain JSON is still understood.
 
 ## Roadmap
 

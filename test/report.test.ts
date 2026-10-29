@@ -11,7 +11,7 @@ const report = buildReport({
   answer: "Fixed the lexer.\nRan the tests.",
   turns: 3,
   usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-  durationMs: 12_400,
+  duration_ms: 12_400,
   session: "/home/me/.cocseak/sessions/repo-1234/run-1/session.v1.jsonl",
   kap: { active: true, attempt: "attempt-7" },
   commit: "abc1234",

@@ -26,7 +26,7 @@ export interface ReportInput {
   answer: string;
   turns: number;
   usage: Usage;
-  durationMs: number;
+  duration_ms: number;
   session: string;
   kap: Record<string, unknown>;
   changes: ChangeSet;
@@ -96,7 +96,7 @@ export function renderText(report: Report): string {
   const lines: string[] = [];
 
   lines.push(
-    `status: ${report.status} · ${report.turns} turn${report.turns === 1 ? "" : "s"} · ${formatDuration(report.durationMs)} · ${report.model}`,
+    `status: ${report.status} · ${report.turns} turn${report.turns === 1 ? "" : "s"} · ${formatDuration(report.duration_ms)} · ${report.model}`,
   );
 
   if (report.changes.files.length === 0) {
@@ -135,7 +135,7 @@ export function renderMarkdown(report: Report): string {
 
   lines.push(`- status: **${report.status}**`);
   lines.push(`- model: \`${report.model}\``);
-  lines.push(`- turns: ${report.turns} in ${formatDuration(report.durationMs)}`);
+  lines.push(`- turns: ${report.turns} in ${formatDuration(report.duration_ms)}`);
   lines.push(`- workspace: \`${report.cwd}\``);
   if (report.commit) lines.push(`- commit: \`${report.commit}\``);
   lines.push(`- session: \`${report.session}\``);

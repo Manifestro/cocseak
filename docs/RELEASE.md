@@ -62,6 +62,7 @@ Bump `package.json` and `src/version.ts` together; `cocseak --version` must matc
 - macOS/Linux only; the agent runs `sh`, not PowerShell.
 - No session resume yet: every run starts cold.
 - Tools run sequentially; no parallel tool calls.
+- Provider retries are bounded: three attempts, then the run fails.
 - Workspace confinement is path-based (symlinks are resolved and refused), but `bash` is not a
   sandbox: it can do anything the user can.
 - A dirty worktree is never turned into an attempt; commit or stash first.
